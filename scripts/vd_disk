@@ -1,0 +1,60 @@
+#!/usr/local/bin/python2.7
+""" Get a report on available disk space.
+Like disk_utilization but simpler output
+"""
+
+import subprocess
+all_hosts_id = [1,2,3,4,5,6,7,8,9,10,11,12]
+all_hosts = ['vd%d'%i for i in all_hosts_id]
+ALL_FIELDS = ['size', 'used', 'avail', 'usep']
+
+def ParseArgs():
+    '''For argument parsing'''
+    import argparse
+    ap = argparse.ArgumentParser(prog='vd_disk', description='Asgard tool for ssds usage.', epilog='Part of Asgard')
+    add = ap.add_argument
+    add('hosts', help = 'Hosts to query.',  nargs='*', default=None)
+    add('--only', help = "Print only these.", nargs='*', default=None, choices=ALL_FIELDS, dest='only') 
+    add('--sort', help = "Sort by",  default="usep", choices=ALL_FIELDS, dest='sort') 
+    return ap.parse_args()
+
+def QueryDF(hosts):
+    '''For querying df -kh'''
+    ret = {h:{k:"" for k in ALL_FIELDS} for h in hosts}
+    ssh_query = 'ssh {0} "df -kh | grep ssd"'
+    for h in hosts:
+      try:
+        output = subprocess.check_output(ssh_query.format(h),shell=True, stderr=subprocess.STDOUT)
+      # permissions errors on lost+found etc. cause retcode!=0
+      except subprocess.CalledProcessError as e:
+        output = e.output
+      lo = output.strip().split()
+      ret[h]['size']  = lo[-5]
+      ret[h]['used']  = lo[-4]
+      ret[h]['avail'] = lo[-3]
+      ret[h]['usep']  = lo[-2]
+    return ret
+
+if __name__ == "__main__":
+  args = ParseArgs()
+  hosts = args.hosts or all_hosts
+  fields = args.only or ALL_FIELDS
+  sortby = args.sort
+  # get to work
+  dfdict = QueryDF(hosts)
+  # format
+  tf = "{0: <8} "
+  for i,f in enumerate(fields):
+    tf = tf + "{" + str(i+1) + ": <8} "
+  # header
+  print tf.format("host", *fields)
+  # argsort
+  idx = range(len(dfdict.keys()))
+  sorthis = map(lambda k : dfdict[k][sortby], dfdict.keys())
+  keys = sorted(idx, key = lambda k : sorthis[k])
+  # print
+  for i in keys:
+    hthis = hosts[i]
+    sp = map(lambda k : dfdict[hthis][k], fields)
+    print tf.format(hthis, *sp)
+

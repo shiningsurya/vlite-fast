@@ -51,7 +51,7 @@ fi
 # this will write both
 #${PACKAGE_DIR}/bin/process_baseband -k ${2} -K ${3} -w ${4} -b ${5} -g ${6} -o 
 # this will write coadd
-/home/vlite-master/mtk/bin/process_baseband -k ${2} -K ${3} -w ${5} -b ${6} -g ${7} -o -C ${4}
+${PACKAGE_DIR}/bin/process_baseband -k ${2} -K ${3} -w ${5} -b ${6} -g ${7} -o -C ${4}
 
 if [ ${3} -gt 0 ]
 then

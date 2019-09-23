@@ -1,0 +1,8 @@
+#/bin/bash
+# set -x
+C=1
+while [ $C -lt 13 ]; do
+  echo "vlite-difx${C}"
+  ssh -q vliteops@vlite-difx${C} "ls ${1} | wc"
+  let C=$C+1
+done

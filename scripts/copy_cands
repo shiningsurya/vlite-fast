@@ -1,0 +1,7 @@
+#!/bin/bash
+hosts=( vd1 vd2 vd3 vd4 vd5 vd6 vd7 vd8 vd9 vd10 vd11 vd12 )
+for host in "${hosts[@]}"
+do
+  echo "Copying cands from ${host}."
+  rsync -ravPhz ${host}:/mnt/ssd/cands /home/vlite-master/surya/analysis/allcands/ --bwlimit=1500 --exclude="*.a*" --exclude="*.log*"
+done

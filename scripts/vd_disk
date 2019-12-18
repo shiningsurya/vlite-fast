@@ -7,6 +7,8 @@ import subprocess
 all_hosts_id = [1,2,3,4,5,6,7,8,9,10,11,12]
 all_hosts = ['vd%d'%i for i in all_hosts_id]
 ALL_FIELDS = ['size', 'used', 'avail', 'usep']
+ssh_query = 'ssh {0} "df -kh | grep ssd"'
+#ssh_query = 'ssh {0} "du -sh /mnt/ssd/fildata /mnt/ssd/dumps"'
 
 def ParseArgs():
     '''For argument parsing'''
@@ -21,7 +23,6 @@ def ParseArgs():
 def QueryDF(hosts):
     '''For querying df -kh'''
     ret = {h:{k:"" for k in ALL_FIELDS} for h in hosts}
-    ssh_query = 'ssh {0} "df -kh | grep ssd"'
     for h in hosts:
       try:
         output = subprocess.check_output(ssh_query.format(h),shell=True, stderr=subprocess.STDOUT)

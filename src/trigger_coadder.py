@@ -33,6 +33,17 @@ import os
 # length doesn't exceed MAX_DUMP s
 MAX_DUMP = 20
 DM_DELAY = 4.15e-3*(0.320**-2-0.384**-2)
+SNMIN = 8.5
+DMMIN = 50
+WMAX  = 100E-3
+
+# diag log
+def utc_diag_print(x):
+    '''prints dict'''
+    sf = "UTC {0: <24} #={1: <5} @ UTC {2: <24}"
+    ntime = time.strftime("%Y-%m-%d-%H:%M:%S", time.gmtime())
+    for k,v in x.items():
+        print sf.format(k,len(v), ntime)
 
 # set up a listening socket for heimdall server
 
@@ -92,7 +103,7 @@ if __name__ == '__main__':
     print "Made server"
     utc_groups = dict()
     utc_sent_triggers = defaultdict(set)
-    output = file('/home/vlite-master/surya/logs/coadder_trigger_log.asc','a')
+    output = file('/home/vlite-master/surya/logs/tc.asc','a')
     while (True):
         clientsocket, address = server_socket.accept ()
         print 'Received a connection from %s:%s.\n'%(address[0],address[1])
@@ -133,15 +144,16 @@ if __name__ == '__main__':
         cgroups = utc_groups[utc]
 
 
+
         # add in Candidate objects to the appropriate beam
         cgroups.extend((Candidate(None,l) for l in lines[2:]))
 
-        print 'UTC',utc
+        #utc_diag_print(utc_groups)
 
 
         # get triggers
         sent_triggers = utc_sent_triggers[utc]
-        current_triggers = trigger(cgroups,snthresh=9.5,wmax=100E-3,dmmin=100)
+        current_triggers = trigger(cgroups,snthresh=SNMIN,wmax=WMAX,dmmin=DMMIN)
         new_triggers = set(current_triggers).difference(sent_triggers)
         print 'new_triggers len: ',len(new_triggers) # DEBUG
 
@@ -168,7 +180,7 @@ if __name__ == '__main__':
             t0 = calendar.timegm(t) + dump_offs - 0.1
             t1 = t0 + dump_len + 0.2
             print 't0=',t0,' t1=',t1
-            t = struct.pack('dd128s',t0,t1,s)
+            t = struct.pack('ddffff128s',t0,t1,trig.sn,trig.dm,trig.width,trig.peak_time,s)
             send_trigger(t)
             sent_triggers.add(trig)
 

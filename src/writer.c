@@ -25,6 +25,10 @@
 static FILE* logfile_fp = NULL;
 static struct timespec ts_1ms;
 static const char cmdstop[] = {CMD_STOP};
+static int mc_control_sock = 0;
+static int mc_info_sock = 0;
+static multilog_t* mlog = NULL;
+static dada_hdu_t* hdu = NULL;
 
 void usage ()
 {
@@ -33,6 +37,37 @@ void usage ()
 	  "-e ethernet device id (default: eth0)\n"
 	  "-o print logging messages to stderr (as well as logfile)\n"
     );
+}
+
+void cleanup (void)
+{
+  fprintf (stderr,"called cleanup! [WRITER]\n");
+  fflush (stderr);
+  if (hdu != NULL)
+  {
+    dada_hdu_disconnect (hdu);
+    dada_hdu_destroy (hdu);
+  }
+  fprintf (stderr,"h1w\n");
+  fflush (stderr);
+  if (mc_control_sock > 0)
+    shutdown (mc_control_sock, 2);
+  if (mc_info_sock > 0)
+    shutdown (mc_info_sock, 2);
+  fprintf (stderr,"h2w\n");
+  fflush (stderr);
+  multilog (mlog, LOG_INFO, "Completed shutdown [WRITER].\n");
+  multilog_close (mlog);
+  if (logfile_fp) fclose (logfile_fp);
+  fprintf (stderr,"h3w\n");
+  fflush (stderr);
+}
+
+void exit_handler (void)
+{
+  fprintf (stderr, "called exit_handler\n");
+  fflush (stderr);
+  cleanup ();
 }
 
 void sigint_handler (int dummy) {
@@ -115,7 +150,7 @@ void print_observation_document(char* result, ObservationDocument* od)
   strcat(result,s);
 }
 
-void fprint_observation_document(FILE* fd, ObservationDocument* od)
+void fprint_observation_document(FILE* fd, ObservationDocument* od, int brief)
 {
   // convert to hhmmss
   double fracday = od->startTime-(int)od->startTime;
@@ -132,16 +167,17 @@ void fprint_observation_document(FILE* fd, ObservationDocument* od)
   fprintf(fd,"    startTime = %10.8f [%02d:%02d:%02d]\n", od->startTime,
       hh, mm, ss);
   fprintf(fd,"    name = %s\n", od->name);
-  fprintf(fd,"    ra = %10.8f\n", od->ra);
-  fprintf(fd,"    dec = %10.8f\n", od->dec);
+  fprintf(fd,"    ra = %10.8f, dec = %10.8f\n", od->dec, od->ra);
+  fprintf(fd,"    startLST = %10.8f\n", od->startLST);
+  fprintf(fd,"    scanNo = %d; subscanNo = %d\n", od->scanNo, od->subscanNo);
+  //fprintf(fd,"    subscanNo = %d\n", od->subscanNo);
+  fprintf(fd,"    primaryBand = %s\n", od->primaryBand);
+  if (brief)
+    return;
   fprintf(fd,"    dra = %10.8f\n", od->dra);
   fprintf(fd,"    ddec = %10.8f\n", od->ddec);
   fprintf(fd,"    azoffs = %10.8f\n", od->azoffs);
   fprintf(fd,"    eloffs = %10.8f\n", od->eloffs);
-  fprintf(fd,"    startLST = %10.8f\n", od->startLST);
-  fprintf(fd,"    scanNo = %d\n", od->scanNo);
-  fprintf(fd,"    subscanNo = %d\n", od->subscanNo);
-  fprintf(fd,"    primaryBand = %s\n", od->primaryBand);
   fprintf(fd,"    usesPband = %d\n", od->usesPband);
 }
 
@@ -177,24 +213,23 @@ void fake_observation_document (ObservationDocument* od, double scan_start,
 // early.  Potentially could be handle by a multicast message.  Or just
 // quit and restart...
 
-int stop_observation (dada_hdu_t* hdu, multilog_t* log, 
+void stop_observation (dada_hdu_t* hdu, multilog_t* log, 
     uint64_t* packets_written, int* state)
 {
   if (*state != STATE_STARTED)
-    return 1;
+    return;
 
   *state = STATE_STOPPED;
   if (dada_hdu_unlock_write (hdu) < 0) {
     multilog (log, LOG_ERR,
         "[STATE_STARTED->STOP]: unable to unlock psrdada HDU, exiting\n");
-    return 0;
+    exit (EXIT_FAILURE);
   }
   multilog (log, LOG_INFO,
       "[STATE_STARTED->STOP] Wrote %d packets to psrdada buffer.\n",*packets_written);
   *packets_written = 0;
 
   nanosleep (&ts_1ms, NULL);
-  return 1;
 }
 
 /* NO longer needed
@@ -242,7 +277,7 @@ int get_buffer_trigger_overlap (char** bufs, int nbufs,
     strftime (dada_utc, 64, DADA_TIMESTR, &utc_time);
     if (ibuf==0)
       fprintVDIFHeader(stderr, vdhdr, VDIFHeaderPrintLevelColumns);
-    multilog (log, LOG_INFO, "buffer UTC %s\n", dada_utc);
+    multilog (mlog, LOG_INFO, "buffer UTC %s\n", dada_utc);
     printf ("utc_seconds = %ld\n",utc_seconds);
     fprintVDIFHeader (stderr, vdhdr, VDIFHeaderPrintLevelShort);
     */
@@ -311,7 +346,7 @@ ObservationDocument* search_od_cache (ObservationDocument* first_od, int od_cach
  * like VLASS.  For speed, we are also ignoring projection effects!
  */
 int check_od_consistency (ObservationDocument* od1, 
-    ObservationDocument* od2, multilog_t* log, int* obs_length)
+    ObservationDocument* od2, multilog_t* log, int obs_length)
 {
 
   // check for edge case of FINISH scan
@@ -322,10 +357,10 @@ int check_od_consistency (ObservationDocument* od1,
   int max_integ = 480; // 8 minutes
   if ((fabs(od1->ra-od2->ra)< rtol) && fabs(od1->dec-od2->dec) < rtol)
   {
-     if (*obs_length < max_integ)
+     if (obs_length < max_integ)
      {
        multilog (log, LOG_INFO,
-           "Pointing unchanged, will continue to integrate.\n");
+           "Pointing unchanged, will continue to integrate [t=%d].\n",obs_length);
        return 1;
      }
      multilog (log, LOG_INFO,
@@ -334,21 +369,66 @@ int check_od_consistency (ObservationDocument* od1,
   return 0;
 }
 
+/*
+ * Return the difference, in frames, between two packets represented by
+ * the provided VDIF headers.  It is assumed hdr2 will follow in time.
+ * This will include the total number of frames, that is, for both threads/
+ * polarizations in the data stream.  It will be 1 for contiguous data.
+ */
+int vdif_frame_difference (vdif_header* hdr1, vdif_header* hdr2)
+{
+  // recall our convention for thread, thread = threadid != 0
+  // viz. threadid == 0 = 0, anything else mapped to 0
+  return ((int)hdr2->seconds-hdr1->seconds)*(2*FRAMESPERSEC) +
+         ((int)hdr2->frame-hdr1->frame)*2 + 
+         ((int)(hdr2->threadid!=0)-(hdr1->threadid!=0));
+}
+
+/*
+ * Change the fields of the supplied VDIF header to emulate the arrival of the
+ * subequent frame/packet.
+ */
+void increment_vdif_header (vdif_header* hdr)
+{
+  int old_thread = hdr->threadid != 0; // our internal thread id
+  if (old_thread == 1)
+  { 
+    // if we are on thread 1, we increment frame and switch to thread 0
+    hdr->frame += 1;
+    hdr->threadid = 0;
+    
+    // check if we wrapped to the next second
+    if (FRAMESPERSEC==hdr->frame)
+    {
+      hdr->seconds += 1;
+      hdr->frame = 0;
+    }
+  }
+  else
+    // otherwise, simply switch from thread 0 to thread 1
+    hdr->threadid = 1;
+}
+
 int main(int argc, char** argv)
 {
   // register SIGINT handling
   signal (SIGINT, sigint_handler);
 
+  // register exit function
+  atexit (exit_handler);
+
   int exit_status = EXIT_SUCCESS;
   key_t key = 0x40;
-  multilog_t* log = multilog_open ("writer",0);
-  dada_hdu_t* hdu = dada_hdu_create (log);
+  mlog = multilog_open ("writer",0);
+  hdu = dada_hdu_create (mlog);
 
   // get this many bytes at a time from data socket
   int FRAME_BUFSIZE = UDP_HDR_SIZE + VDIF_FRAME_SIZE; 
   char frame_buff[FRAME_BUFSIZE];
   char* vdif_buff = frame_buff + UDP_HDR_SIZE;
   vdif_header* vdhdr = (vdif_header*) (vdif_buff);
+  char fill_vdif_buff[VDIF_FRAME_SIZE] = {127};
+  vdif_header* fill_vdhdr = (vdif_header*) fill_vdif_buff;
   char dev[16] = ETHDEV;
   char hostname[MAXHOSTNAME];
   gethostname(hostname,MAXHOSTNAME);
@@ -359,7 +439,6 @@ int main(int argc, char** argv)
   int last_frame[2] = {-2,-2};
   int time_since_timet = 10;
   time_t packet_monitor_timet = 0;
-  int pause_seconds = 0;
   int obs_length = 0;
   double vdif_dmjd = -1;
   
@@ -431,9 +510,9 @@ int main(int argc, char** argv)
       "%s/%s_%s_writer_%06d.log",LOGDIR,currt_string,hostname,pid);
   //FILE *logfile_fp = fopen (logfile, "w");
   logfile_fp = fopen (logfile, "w");
-  multilog_add (log, logfile_fp);
+  multilog_add (mlog, logfile_fp);
   if (stderr_output)
-    multilog_add (log, stderr);
+    multilog_add (mlog, stderr);
   printf("writing log to %s\n",logfile);
 
   // print out command used to invoke
@@ -443,7 +522,7 @@ int main(int argc, char** argv)
     strcat (incoming_hdr, " ");
     strncat (incoming_hdr, argv[i], 4095-strlen(incoming_hdr));
   }
-  multilog (log, LOG_INFO, "[WRITER] invoked with: \n%s\n", incoming_hdr);
+  multilog (mlog, LOG_INFO, "[WRITER] invoked with: \n%s\n", incoming_hdr);
 
   // have a 1-1 mapping between threadios and recent dump times.  Given
   // size of the buffer, about 100 seems appropriate.
@@ -460,26 +539,26 @@ int main(int argc, char** argv)
   dada_hdu_set_key (hdu,key);
   if (dada_hdu_connect(hdu) < 0)
   {
-    multilog (log, LOG_ERR, "Unable to connect to psrdada HDU.\n");
+    multilog (mlog, LOG_ERR, "Unable to connect to psrdada HDU.\n");
     exit (EXIT_FAILURE);
   }
-  multilog (log, LOG_INFO, "Connected to psrdada HDU.\n");
+  multilog (mlog, LOG_INFO, "Connected to psrdada HDU.\n");
 
   
   // set up multi-cast sockets
   int mc_control_sock = open_mc_socket (mc_vlitegrp, MC_WRITER_PORT,
-      "Control Socket [Writer]", &maxsock, log);
+      "Control Socket [Writer]", &maxsock, mlog);
   char mc_from[24]; //ip address of multicast sender
   char mc_control_buf[32];
   
   int mc_trigger_sock = open_mc_socket (mc_vlitegrp, MC_TRIGGER_PORT,
-      "Trigger Socket [Writer]", &maxsock, log);
+      "Trigger Socket [Writer]", &maxsock, mlog);
   char mc_trigger_buf[sizeof(trigger_t)*MAX_TRIGGERS];
   trigger_t* trigger_queue[MAX_TRIGGERS] = {NULL};
   
   char mc_info_buf[MSGMAXSIZE];
   int mc_info_sock = open_mc_socket (mc_obsinfogrp, MULTI_OBSINFO_PORT,
-      "Observation Info [Writer]", &maxsock, log);
+      "Observation Info [Writer]", &maxsock, mlog);
 
   // Open raw data stream socket
   Connection raw;
@@ -489,7 +568,7 @@ int main(int argc, char** argv)
 
   raw.svc = openRawSocket (dev,0);
   if (raw.svc < 0) {
-    multilog (log, LOG_ERR, 
+    multilog (mlog, LOG_ERR, 
        "Cannot open raw socket on %s. Error code %d\n", dev, raw.svc);
     exit (EXIT_FAILURE);
   }
@@ -527,7 +606,7 @@ int main(int argc, char** argv)
     FD_SET (raw.svc, &readfds);
     if (select (maxsock+1,&readfds,NULL,NULL,&tv_500mus) < 0)
     {
-      multilog (log, LOG_ERR, "[Main Control Loop] Error calling select.");
+      multilog (mlog, LOG_ERR, "[Main Control Loop] Error calling select.");
       fflush (logfile_fp);
       exit (EXIT_FAILURE);
     }
@@ -546,20 +625,13 @@ int main(int argc, char** argv)
     // CMD_START can now only be issued by comparing packets to scan starts
     if ((cmd == CMD_START) && (state == STATE_STOPPED))
     {
-      multilog (log, LOG_ERR, "[Main Control Loop] rxed CMD_START.");
+      multilog (mlog, LOG_ERR, "[Main Control Loop] rxed CMD_START.");
       exit (EXIT_FAILURE);
     }
 
     // must accept CMD_STOP to handle skips on other nodes
     if (cmd == CMD_STOP)
-    {
-      if (!stop_observation (hdu, log, &packets_written, &state))
-      {
-        exit_status = EXIT_FAILURE;
-        break_loop = 1;
-        break;
-      }
-    }
+      stop_observation (hdu, mlog, &packets_written, &state);
     
     //
     //if ((cmd == CMD_FAKE_START) && (state == STATE_STOPPED))
@@ -569,7 +641,7 @@ int main(int argc, char** argv)
         if (od_cache_idx == OD_CACHE_SIZE)
           od_cache_idx = 0;
       fake_observation_document (&od_cache[od_cache_idx], vdif_dmjd, 0, 1);
-      multilog (log, LOG_INFO,
+      multilog (mlog, LOG_INFO,
           "Inserting a fake START observation document.\n");
     }
 
@@ -580,7 +652,7 @@ int main(int argc, char** argv)
         if (od_cache_idx == OD_CACHE_SIZE)
           od_cache_idx = 0;
       fake_observation_document (&od_cache[od_cache_idx], vdif_dmjd, 1, 0);
-      multilog (log, LOG_INFO,
+      multilog (mlog, LOG_INFO,
           "Inserting a fake FINISH observation document.\n");
     }
 
@@ -588,12 +660,12 @@ int main(int argc, char** argv)
     {
       if (state == STATE_STARTED)
       {
-        multilog (log, LOG_INFO,"[STATE_STARTED->QUIT], exiting.\n");
-        multilog (log, LOG_INFO,"dada_hdu_unlock_write result = %d.\n",
+        multilog (mlog, LOG_INFO,"[STATE_STARTED->QUIT], exiting.\n");
+        multilog (mlog, LOG_INFO,"dada_hdu_unlock_write result = %d.\n",
             dada_hdu_unlock_write (hdu));
       }
       else if (state == STATE_STOPPED)
-        multilog (log, LOG_INFO, "[STATE_STOPPED->QUIT], exiting.\n");
+        multilog (mlog, LOG_INFO, "[STATE_STOPPED->QUIT], exiting.\n");
       break;
     }
 
@@ -603,16 +675,16 @@ int main(int argc, char** argv)
       int nbytes = MultiCastReceive (
           mc_info_sock, mc_info_buf, MSGMAXSIZE, NULL);
       if (nbytes <= 0) {
-        multilog (log, LOG_ERR,
+        multilog (mlog, LOG_ERR,
             "Error on Obsinfo socket, return value = %d\n",nbytes);
         exit (EXIT_FAILURE);
       }
       parseScanInfoDocument (&D, mc_info_buf);
       if (D.type == SCANINFO_OBSERVATION)
       {
-        multilog (log, LOG_INFO, "Incoming ObservationDocument:\n");
+        multilog (mlog, LOG_INFO, "Incoming ObservationDocument:\n");
         //printScanInfoDocument (&D);
-        fprint_observation_document(stderr, &D.data.observation);
+        fprint_observation_document(stderr, &D.data.observation, 1);
         od_cache_idx += 1;
         if (od_cache_idx == OD_CACHE_SIZE)
           od_cache_idx = 0;
@@ -620,10 +692,9 @@ int main(int argc, char** argv)
         // check to see if we have run out of room in the OD cache
         if (od == current_od)
         {
-          multilog (log, LOG_ERR,
+          multilog (mlog, LOG_ERR,
               "Attempting to overwrite current ObservationDocument!");
-          exit_status = EXIT_FAILURE;
-          break; // break out of main loop
+          exit( EXIT_FAILURE);
         }
         memcpy (od, &D.data.observation, sizeof(ObservationDocument));
         // write to log or file?
@@ -636,15 +707,15 @@ int main(int argc, char** argv)
       int nbytes = MultiCastReceive (mc_trigger_sock, mc_trigger_buf,
           sizeof(trigger_t)*MAX_TRIGGERS, mc_from);
       int ntrigger = nbytes / sizeof(trigger_t);
-      multilog (log, LOG_INFO, "Received %d triggers.\n", ntrigger);
+      multilog (mlog, LOG_INFO, "Received %d triggers.\n", ntrigger);
       if (ntrigger > MAX_TRIGGERS)
       {
-        multilog (log, LOG_INFO, "Truncating trigger list to fit.\n");
+        multilog (mlog, LOG_INFO, "Truncating trigger list to fit.\n");
         ntrigger = MAX_TRIGGERS;
       }
       if ((nbytes == 0)  || ((nbytes-ntrigger*sizeof(trigger_t))!=0))
       {
-        multilog (log, LOG_ERR,
+        multilog (mlog, LOG_ERR,
             "Error on Trigger socket, return value = %d\n",nbytes);  
         continue;
       }
@@ -653,7 +724,7 @@ int main(int argc, char** argv)
         fprintf (stderr, "working on trigger %d\n",i);
         trigger_t* trig = (trigger_t*) (mc_trigger_buf) + i;
         trigger_queue[i] = trig;
-        multilog (log, LOG_INFO,
+        multilog (mlog, LOG_INFO,
             "(writer) received a trigger with t0=%.3f and t1=%.3f and meta %s.\n",
             trig->t0,trig->t1,trig->meta);
       }
@@ -671,7 +742,7 @@ int main(int argc, char** argv)
       int nbufs_to_write = get_buffer_trigger_overlap (
           buf->buffer, nbufs, trigger_queue,
           dump_times, bufs_to_write, times_to_write);
-      multilog (log, LOG_INFO,
+      multilog (mlog, LOG_INFO,
           "Dumping out %d buffers with the following UTC timestamps:\n",nbufs_to_write);
       for (int ibuf=0; ibuf < nbufs_to_write; ++ibuf)
       {
@@ -682,10 +753,10 @@ int main(int argc, char** argv)
           if (tio->status != 0)
           {
             if (tio->status < 0)
-              multilog (log, LOG_ERR,
+              multilog (mlog, LOG_ERR,
                   "Previous I/O still ongoing, likely an error condition.");
             else
-              multilog (log, LOG_ERR,
+              multilog (mlog, LOG_ERR,
                   "Previous I/O encountered error.");
           }
           free (tio);
@@ -694,10 +765,8 @@ int main(int argc, char** argv)
         tio = (threadio_t*)(malloc (sizeof (threadio_t)));
         if (tio==NULL)
         {
-          multilog (log, LOG_ERR, "Unable to allocate ThreadIO mem.");
-          exit_status = EXIT_FAILURE;
-          break_loop = 1;
-          break;
+          multilog (mlog, LOG_ERR, "Unable to allocate ThreadIO mem.");
+          exit( EXIT_FAILURE);
         }
         tio->status = -1;
         tio->buf = bufs_to_write[ibuf];
@@ -706,7 +775,7 @@ int main(int argc, char** argv)
         int sid = getVDIFStationID ((vdif_header*)bufs_to_write[ibuf]);
         snprintf (tio->fname, 255,"%s/%s_ea%02d_%li.vdif",
             EVENTDIR,currt_string,sid,times_to_write[ibuf]);
-        multilog (log, LOG_INFO, ".... UTC %li writing to %s\n",
+        multilog (mlog, LOG_INFO, ".... UTC %li writing to %s\n",
             times_to_write[ibuf], tio->fname);
         // TODO -- could actually do a better job of this since we KNOW how far
         // a given buffer is from dropping off the end of the ring buffer, and
@@ -717,9 +786,9 @@ int main(int argc, char** argv)
         // zero copy by memory mapping the output file to the system memory and
         // faulting it
         if (pthread_create (&tio->tid, NULL, &buffer_dump, (void*)tio) != 0)
-            multilog (log, LOG_ERR, "pthread_create failed\n");
+            multilog (mlog, LOG_ERR, "pthread_create failed\n");
         if (pthread_detach (tio->tid) != 0)
-            multilog (log, LOG_ERR, "pthread_detach failed\n");
+            multilog (mlog, LOG_ERR, "pthread_detach failed\n");
         threadios[dump_idx] = tio;
         dump_times[dump_idx++] = times_to_write[ibuf];
         if (MAX_THREADIOS == dump_idx)
@@ -743,42 +812,76 @@ int main(int argc, char** argv)
         {
           if (raw_bytes_read <= 0)
           {
-            multilog (log, LOG_ERR,
+            multilog (mlog, LOG_ERR,
                 "Raw socket read failed: %d\n.", raw_bytes_read);
-            exit_status = EXIT_FAILURE;
-            break_loop = 1;
+            //exit (EXIT_FAILURE);
+            // change 9/5/2019 -- break out of multi-packet loop instead of failing
             break;
+
           }
           else
           {
-            multilog (log, LOG_ERR, "Received anomalous packet size: %d, aborting obs.\n", raw_bytes_read);
-            if (!stop_observation (hdu, log, &packets_written, &state))
-            {
-              exit_status = EXIT_FAILURE;
-              break_loop = 1;
-              break;
-            }
+            //multilog (mlog, LOG_ERR, "Received anomalous packet size: %d, aborting obs.\n", raw_bytes_read);
+            multilog (mlog, LOG_ERR,
+                "Received anomalous packet size: %d.  Continuing.\n", raw_bytes_read);
+            //stop_observation (hdu, mlog, &packets_written, &state);
+            //abnormal_stop = 1;
             continue;
           }
         }
-        else
+
+        int read_thread = getVDIFThreadID (vdhdr) != 0;
+        int read_frame = getVDIFFrameNumber (vdhdr);
+        vdif_header* vdhdr_to_use;
+        char* vdbuff_to_use;
+        int frame_diff;
+
+        // handle special case of first frame
+        if (last_frame[read_thread] == -2)
+          frame_diff = 1;
+        else 
+          frame_diff = vdif_frame_difference (fill_vdhdr, vdhdr);
+
+        // TMP -- sanity check
+        if (frame_diff < 1)
         {
-          int thread = getVDIFThreadID (vdhdr) != 0; // TODO -- check this convention
-          int current_frame = getVDIFFrameNumber (vdhdr);
+          fprintf (stderr, "frame difference is %d, should not be possible!\n",frame_diff);
+          fprintf (stderr, "hdr1: sec, frame, threadid=%d %d %d\n",fill_vdhdr->seconds,fill_vdhdr->frame,fill_vdhdr->threadid);
+          fprintf (stderr, "hdr2: sec, frame, threadid=%d %d %d\n",vdhdr->seconds,vdhdr->frame,vdhdr->threadid);
+        }
+
+        if (frame_diff > 1)
+          multilog (mlog, LOG_ERR, "Found %d skipped frames.\nCurrent  frame=%d, thread=%d.\nPrevious frame=%d, thread=%d.\n",frame_diff-1,read_frame,read_thread,fill_vdhdr->frame,fill_vdhdr->threadid!=0);
+        
+        for (int iframe = frame_diff; iframe > 0; --iframe)
+        {
+          if (iframe>1)
+          {
+            // increment the last recorded header and use it for all processing
+            increment_vdif_header (fill_vdhdr);
+            vdhdr_to_use = fill_vdhdr;
+            vdbuff_to_use = fill_vdif_buff;
+          }
+          else
+          {
+            vdhdr_to_use = vdhdr;
+            vdbuff_to_use = vdif_buff;
+          }
+
+          int thread = getVDIFThreadID (vdhdr_to_use) != 0;
+          int current_frame = getVDIFFrameNumber (vdhdr_to_use);
+
 
           // check if we are on a one-second boundary with thread==0
-          if ((thread==0) && (MAXFRAMENUM == last_frame[thread]))
+          if ((thread==0) && (MAXFRAMENUM == last_frame[0]))
           {
-            vdif_dmjd = getVDIFFrameDMJD (vdhdr, FRAMESPERSEC);
+            vdif_dmjd = getVDIFFrameDMJD (vdhdr_to_use, FRAMESPERSEC);
             
             // reset sample counter
             last_frame[0] = -1;
             last_frame[1] = -1;
 
-            // unpause skip checking
-            pause_seconds = 0;
-
-            // monitor synchronization between system time and packets
+            // check synchronization between system time and packets every 10s
             if (time_since_timet==10)
               packet_monitor_timet = time (NULL);
             time_since_timet -= 1;
@@ -789,10 +892,8 @@ int main(int argc, char** argv)
               if ((packet_monitor_timet-old_time) > 11)
               {
                 fprintf (stderr, "packet_monitor_time = %ld; old_time = %ld\n",packet_monitor_timet,old_time);
-                multilog (log, LOG_ERR, "Packet times and system time are out of synch by more than 1s!\n");
-                exit_status = EXIT_FAILURE;
-                break_loop = 1;
-                break;
+                multilog (mlog, LOG_ERR, "Packet times and system time are out of synch by more than 1s!\n");
+                exit (EXIT_FAILURE);
               }
               time_since_timet = 10;
             }
@@ -801,12 +902,10 @@ int main(int argc, char** argv)
             ipcio_t* ipc = hdu->data_block;
             uint64_t m_nbufs = ipcbuf_get_nbufs ((ipcbuf_t *)ipc);
             uint64_t m_full_bufs = ipcbuf_get_nfull((ipcbuf_t*) ipc);
-            if (m_full_bufs == (m_nbufs - 1))
+            if (m_full_bufs == (m_nbufs - 2))
             {
-              multilog (log, LOG_ERR, "[WRITER] Only one free buffer left!  Aborting process.");
-              exit_status = EXIT_FAILURE;
-              break_loop = 1;
-              break;
+              multilog (mlog, LOG_ERR, "[WRITER] Only one free buffer left!  Aborting process.");
+              exit (EXIT_FAILURE);
             }
 
             if (state == STATE_STARTED)
@@ -819,7 +918,7 @@ int main(int argc, char** argv)
 
             if (new_scan != NULL)
             {
-              multilog (log, LOG_INFO, "Found a new scan at %10.8f.\n",
+              multilog (mlog, LOG_INFO, "Found a new scan at %10.8f.\n",
                   new_scan->startTime);
 
               // If recording, check to see if new scan is consistent.
@@ -827,15 +926,10 @@ int main(int argc, char** argv)
               int new_obs = 1;
               if (state==STATE_STARTED)
               {
-                if (!check_od_consistency (current_od, new_scan, log, &obs_length))
+                if (!check_od_consistency (current_od, new_scan, mlog, obs_length))
                 {
                   // stop current observation if they are inconsistent
-                  if (!stop_observation (hdu, log, &packets_written, &state))
-                  {
-                    exit_status = EXIT_FAILURE;
-                    break_loop = 1;
-                    break;
-                  }
+                  stop_observation (hdu, mlog, &packets_written, &state);
                   // Check if new scan is FINISH
                   if (strcasecmp (new_scan->name, "FINISH") == 0)
                     new_obs = 0;
@@ -849,80 +943,60 @@ int main(int argc, char** argv)
               // Start new observation
               if (new_obs)
               {
-                multilog (log, LOG_INFO,"[STATE_STOPPED->START]\n");
+                multilog (mlog, LOG_INFO,"[STATE_STOPPED->START]\n");
                 state = STATE_STARTED;
                 packets_written = 0;
+                obs_length = 0;
 
                 if (dada_hdu_lock_write (hdu) < 0) {
-                  multilog (log, LOG_ERR, 
+                  multilog (mlog, LOG_ERR, 
                       "Unable to lock psrdada HDU, exiting\n");
                   exit (EXIT_FAILURE);
                 }
               
-                multilog (log, LOG_INFO, "Writing psrdada header.\n");
-                write_psrdada_header (hdu, vdhdr, current_od);
+                multilog (mlog, LOG_INFO, "Writing psrdada header.\n");
+                write_psrdada_header (hdu, vdhdr_to_use, current_od);
               }
             }
 
           }
-
-          // CHECK FOR SKIPS IN DATA
-          //
-          // initially buffer is full, so we will drop packets at startup.
-          // Any time we drop packets, we want to have a pause to attempt
-          // to catch up, and we can handle both problems by allowing the
-          // startup to trigger a pause.
-
-          if (((current_frame - last_frame[thread]) != 1) && (pause_seconds == 0))
-          {
-            pause_seconds = 1;
-            multilog (log, LOG_ERR, "Detected a skip!  Aborting observation and pausing 1 second before checking again.\n");
-
-            if (!stop_observation (hdu, log, &packets_written, &state))
-            {
-              exit_status = EXIT_FAILURE;
-              break_loop = 1;
-              break;
-            }
-          }
           
+          if (iframe==1)
+            // copy over VDIF header for next loop
+            *fill_vdhdr = *vdhdr;
+
           // update sample counter
           last_frame[thread] = current_frame;
 
           if (state != STATE_STARTED)
             continue;
 
+          // TMP sanity check
+          //if (vdbuff_to_use == fill_vdif_buff)
+          //  fprintf (stderr, "Writing out of fill buffer.\n");
+
           ipcio_bytes_written = ipcio_write (
-              hdu->data_block,vdif_buff, VDIF_FRAME_SIZE);
+              hdu->data_block, vdbuff_to_use, VDIF_FRAME_SIZE);
 
           if (ipcio_bytes_written != VDIF_FRAME_SIZE) {
-            multilog (log, LOG_ERR,
+            multilog (mlog, LOG_ERR,
                 "Failed to write VDIF packet to psrdada buffer.\n");
             exit (EXIT_FAILURE);
           }
           else
             packets_written++;
-        } // end check on raw socket read success
+
+        } // end loop over received (and possibly) skipped) frame(s)
       } // end multiple packet read
     } // end raw socket read logic
 
     if (break_loop)
     {
-      multilog (log, LOG_INFO, "Breaking main loop by request.\n");
-      if (!stop_observation (hdu, log, &packets_written, &state))
-        exit_status = EXIT_FAILURE;
-      break;
+      multilog (mlog, LOG_INFO, "Breaking main loop by request.\n");
+      stop_observation (hdu, mlog, &packets_written, &state);
     }
   } // end main loop over state/packets
   
-  shutdown (mc_control_sock,2);
-  shutdown (mc_info_sock,2);
-
-  multilog (log, LOG_INFO,
-      "dada_hdu_disconnect result = %d.\n", dada_hdu_disconnect (hdu));
-  fclose (logfile_fp);
-  //change_file_owner (logfile_fp, "vliteops");
-
   for (int iio=0; iio < MAX_THREADIOS; ++iio)
     if (threadios[iio] != NULL)
       free (threadios[iio]);

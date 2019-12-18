@@ -9,7 +9,8 @@ void dadacheck (int rcode)
   if (rcode < 0)
   {
     fprintf (stderr, "dadacheck failed\n");
-    throw 20;
+    fflush (stderr);
+    exit (EXIT_FAILURE);
   }
 }
 
@@ -97,6 +98,7 @@ int check_name (char* src)
           strstr (src, "J2321+6024") != NULL || 
           strstr (src, "B0833-45") != NULL ||
           strstr (src, "J0835-45") != NULL ||
+          strstr (src, "B1237+25") != NULL ||
           //strstr (src, "B0950+08") != NULL || 
           //strstr (src, "B1133+16") != NULL ||
           //strstr (src, "B1237+25") != NULL ||
@@ -115,7 +117,9 @@ int check_name (char* src)
 int check_id (char* src)
 {
   return (strstr (src, "18B-405") != NULL ||
-          strstr (src, "19A-331") != NULL);
+          strstr (src, "19A-331") != NULL ||
+          strstr (src, "SC1046")  != NULL
+         );
 }
 
 double coord_dist (double ra1, double ra2, double de1, double de2)

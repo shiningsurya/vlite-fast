@@ -1,52 +1,50 @@
 #!/usr/bin/python
 """
-Gather candidates from heimdall, coincidence them, and issue trigger
+Gather candidates from heimdall, 
+issue trigger
 for events above threshold.
 """
+# Options 
+VDIF_ON = True
+TEST_ON = False
 
-host = 'vlite-nrl'
-HEIMDALL_PORT = 27555
-TRIGGER_PORT = 27556
-
+##############
 import socket
-from collections import deque,defaultdict
-from candidate import Candidate,coincidence
 import ctypes
 import struct
-
 import time
 import calendar
-
 import os
 import sys
 import signal
 import random
+import math
+from   collections import deque,defaultdict,namedtuple
 
-# combine events overlapping (multiple triggers) provided their total
-# length doesn't exceed MAX_DUMP s
-MAX_DUMP = 20
-DM_DELAY = 4.15e-3*(0.320**-2-0.384**-2)
-# one
-SNMIN1 = 8.5
-DMMIN1= 50
-WMAX1  = 100E-3
-# two
-SNMIN2 = 7.0
-DMMIN2= 50
-WMAX2  = 20E-3
-# options 
-VDIF_ON = True
-VDIF_SN = 25.0
-# VDIFSM
-VDIF_DMMIN=55.95
-VDIF_DMMAX=57.45
-VDIF_SNMIN=15
-TEST_ON = False
-# mcast groups
+from candidate import Candidate
+
+
+# Structure
+# Cuts is specified for one cut.
+# Cuts2 is for region cuts.
+Cuts     = namedtuple('Cuts' ,['snmin','dmmin','wmax'])
+Cuts2    = namedtuple('Cuts2',['snmin','snmax','dmmin','dmmax','wmin','wmax'])
+# selection cuts
+one  = Cuts(snmin=8.5, dmmin=50, wmax=100E-3)
+two  = Cuts(snmin=7.0, dmmin=50, wmax=20E-3)
+vdif = Cuts(snmin=25.0,dmmin=00, wmax=100E-3)
+crab_psr = Cuts2(snmin=15.0, snmax=math.inf, dmmin=55.95, dmmax=57.45, wmin=1E-3, wmax=5E-3)
+
+# Network
 vdif_group             = ('224.3.29.71',20003)
 single_fbson_group     = ('224.3.29.81',20003)
 coadd_fbson_group      = ('224.3.29.91',20003)
 test_group             = ('224.3.27.81',20003)
+host                   = 'vlite-nrl'
+HEIMDALL_PORT          = 27555
+TRIGGER_PORT           = 27556
+# for DM delay computation
+DM_DELAY               = 4.15e-3*(0.320**-2-0.384**-2)
 
 # diag log
 def utc_diag_print(x):
@@ -57,8 +55,7 @@ def utc_diag_print(x):
         print sf.format(k,len(v), ntime)
 
 # set up a listening socket for heimdall server
-
-def make_server (nmax=18):
+def make_server (nmax=2):
     s = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind ( ('vlite-nrl', HEIMDALL_PORT) )
@@ -84,18 +81,11 @@ def trigger(all_cands):
         d1 = cand.width < WMAX2
         d2 = cand.dm    > DMMIN2
         d3 = cand.sn    >= SNMIN2
-        e1 = cand.dm    > 26.2
-        e2 = cand.dm    < 27.2
-        e3 = cand.sn    > 8
-        e4 = cand.width < WMAX2
         c0 = c1 and c2 and c3
         d0 = d1 and d2 and d3
-        e0 = e1 and e2 and e3 and e4
         good_count += c0
-        good_count += d0
-        good_count += e0
         # send logic
-        if (c0 or d0 or e0):
+        if (c0 or d0):
             triggers.append(cand)
     print 'min/max width: ',we[0],we[1]
     print 'len(all_cands)=%d'%(len(all_cands))
@@ -178,7 +168,7 @@ if __name__ == '__main__':
                 # send a trigger based on active_utc, i0, i1        
                 dm_delay = trig.dm*DM_DELAY
                 dump_offs = i0*trig.tsamp
-                dump_len = 0.15 + dm_delay
+                dump_len = (i1-i0)*trig.tsamp + dm_delay
 
                 # TODO -- it would be nice to print out the latency between the candidate
                 # peak time and the time the trigger is sent; it is 40-50 s with current 
@@ -188,13 +178,12 @@ if __name__ == '__main__':
                 s = "Trigger at UTC %s + %d"%(utc,dump_offs)
                 t = time.strptime(utc,'%Y-%m-%d-%H:%M:%S')
                 # add in 100ms buffer in case heimdall isn't perfectly accurate!
-                pt = 0.2
-                t0 = calendar.timegm(t) + dump_offs - pt
-                t1 = t0 + dump_len + (30*DM_DELAY)
+                t0 = calendar.timegm(t) + dump_offs - (1.5*dm_delay)
+                t1 = t0 + dump_len + (1.5*dm_delay)
                 print 't0=',t0,' t1=',t1
-                t = struct.pack('ddffff128s',t0,t1,trig.sn,trig.dm,trig.width,pt,s)
+                t = struct.pack('ddffff128s',t0,t1,trig.sn,trig.dm,trig.width,trig.peak_time,s)
                 send_trigger(t, coadd_fbson_group)
-                if random.random() <= 0.1:
+                if random.random() <= 0.25:
                     send_trigger(t, single_fbson_group)
                 if VDIF_ON and trig.sn >= VDIF_SN:
                     send_trigger(t, vdif_group)

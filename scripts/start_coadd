@@ -26,9 +26,9 @@ mpirun  --tune ${PACKAGE_DIR}/vlite-fast/config/coadd_mca.conf \
   --output-filename ${PACKAGE_DIR}/logs   --display-map     \
   --oversubscribe\
   --hostfile ${PACKAGE_DIR}/vlite-fast/config/fullcoaddhost \
- -host vd10,vd1,vd2,vd3,vd4,vd5,vd6,vd7,vd12       \
+ -host vd11,vd1,vd2,vd3,vd4,vd5,vd6,vd7,vd8,vd9,vd10,vd12       \
  --map-by ppr:1:node ${DC} -k 46             :                \
- -host vd8,vd9,vd11,vd12                                        \
+ -host vd8,vd9,vd10,vd12                                        \
  --map-by ppr:1:node ${DC} -k 56
 elif [ ${MODE} -eq 11 ]
 then
@@ -37,15 +37,24 @@ mpirun  --tune ${PACKAGE_DIR}/vlite-fast/config/coadd_mca.conf \
   --output-filename ${PACKAGE_DIR}/logs   --display-map     \
   --oversubscribe\
   --hostfile ${PACKAGE_DIR}/vlite-fast/config/fullcoaddhost \
- -host vd10,vd1,vd2,vd4,vd6,vd8,vd9,vd11       \
+ -host vd11,vd1,vd2,vd3,vd4,vd5,vd7,vd10       \
  --map-by ppr:1:node ${DC} -k 46 :   \
- -host vd8,vd12                                   \
+ -host vd12,vd8,vd9,vd10                                \
  --map-by ppr:1:node ${DC} -k 56 
 elif [ ${MODE} -eq 2 ]
 then
+echo "do this"
 # Debug array
-echo "Need to implement this"
 elif [ ${MODE} -eq 3 ]
+ # Full array - vd8,vd9
+mpirun  --tune ${PACKAGE_DIR}/vlite-fast/config/coadd_mca.conf \
+  --output-filename ${PACKAGE_DIR}/logs   --display-map     \
+  --oversubscribe\
+  --hostfile ${PACKAGE_DIR}/vlite-fast/config/fullcoaddhost \
+ -host vd10,vd1,vd3,vd5,vd8,vd9,vd11,vd12       \
+ --map-by ppr:1:node ${DC} -k 46             :                \
+ -host vd8,vd9,vd11,vd12                                      \
+ --map-by ppr:1:node ${DC} -k 56
 then
 # 8Debug array
 mpirun \

@@ -18,7 +18,7 @@ ${PACKAGE_DIR}/vlite-fast/scripts/start_dada2 ${1} ${buffsz} 12
 
 # I messed my own program invocation!
 # lmao
-agtriggerhook -b ${nbit} -s ${buffsz} -N 12 -k ${1} &
+agtriggerhook -b ${nbit} -s ${buffsz} -N 12 -k ${1} -t > /home/vlite-master/surya/logs/triggerhook_"$(date -u +"%s")".log &
 
 # how to propagate antenna -- will have to grab from header, instead
 /home/vlite-master/mtk/heimdall_nov2019/bin/heimdall_stream -nsamps_gulp 30720 -gpu_id ${2} -dm 2 1000 -boxcar_max 64 -output_dir /mnt/ssd/cands -group_output -zap_chans 0 190 -zap_chans 3900 4096 -k ${1} -coincidencer vlite-nrl:27555 -v

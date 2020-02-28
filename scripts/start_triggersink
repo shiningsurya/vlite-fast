@@ -1,0 +1,22 @@
+#!/bin/bash
+PACKAGE_DIR=/home/vlite-master/mtk
+CUDA_DIR=/usr/cuda-10.1.243.418.87.00
+
+export LD_LIBRARY_PATH=${PACKAGE_DIR}/lib:${CUDA_DIR}/lib64:${LD_LIBRARY_PATH}
+#set -x
+# arguments should be
+# $1 = trigger dada key 
+# $2 = gpu_id
+# $3 = ml-model
+
+if [ ${1} -gt 0 ]
+then
+
+# create dada buffer 
+/mnt/ssd/bin/dada_db -k ${1} -l 
+# start triggersink
+agtriggersink -k ${1} -g ${2}
+
+# destroy dada buffer
+/mnt/ssd/bin/dada_db -k ${1} -d
+fi

@@ -7,6 +7,9 @@ for events above threshold.
 # Options 
 VDIF_ON = True
 TEST_ON = False
+SINGLE  = False
+GULPSIZE= 50
+MAXSIZE = 150
 
 ##############
 import socket
@@ -22,6 +25,7 @@ import math
 from   collections import deque,defaultdict,namedtuple
 
 from candidate import Candidate
+from cancache  import CandidateCache
 
 
 # Structure
@@ -115,11 +119,14 @@ if __name__ == '__main__':
     print "Made server"
     utc_groups = dict()
     utc_sent_triggers = defaultdict(set)
+    ##
+    cc = CandidateCache (GULPSIZE, MAXSIZE)
+    ##
     output = file('/home/vlite-master/surya/logs/tc.asc','a')
     try:
         while (True):
             clientsocket, address = server_socket.accept ()
-            print 'Received a connection from %s:%s.\n'%(address[0],address[1])
+            # print 'Received a connection from %s:%s.\n'%(address[0],address[1])
             #output.write('Received a connection from %s:%s.\n'%(address[0],address[1]))
             # ^ we are only receiving from the root
             payload = deque()
@@ -143,25 +150,11 @@ if __name__ == '__main__':
             # NB at least right now this appears to be local time
             utc = toks[0]
 
-            # check UTC for start of new observation
-            if (utc not in utc_groups.keys()):
-                utc_groups[utc] = deque()
+            # add candidates to cc
+            for l in lines[2:]:
+                cc.append (Candidate(None, l))
 
-            cgroups = utc_groups[utc]
-
-            # add in Candidate objects to the appropriate beam
-            cgroups.extend((Candidate(None,l) for l in lines[2:]))
-
-            # get triggers
-            sent_triggers = utc_sent_triggers[utc]
-            current_triggers = trigger(cgroups)
-            new_triggers = set(current_triggers).difference(sent_triggers)
-            print 'new_triggers len: ',len(new_triggers) # DEBUG
-
-            if len(new_triggers) == 0:
-                continue
-
-            for trig in new_triggers:
+            for trig in cc:
                 print 'TRIGGERING ON CANDIDATE:',trig
                 i0,i1 = trig.i0,trig.i1
 
@@ -183,7 +176,7 @@ if __name__ == '__main__':
                 print 't0=',t0,' t1=',t1
                 t = struct.pack('ddffff128s',t0,t1,trig.sn,trig.dm,trig.width,trig.peak_time,s)
                 send_trigger(t, coadd_fbson_group)
-                if random.random() <= 0.25:
+                if SINGLE and random.random() <= 0.25:
                     send_trigger(t, single_fbson_group)
                 if VDIF_ON and trig.sn >= VDIF_SN:
                     send_trigger(t, vdif_group)
@@ -193,10 +186,11 @@ if __name__ == '__main__':
                     send_trigger(t, vdif_group)
                 if TEST_ON:
                     send_trigger(t, test_group)
-                sent_triggers.add(trig)
     except KeyboardInterrupt:
         print ("exiting..")
     finally:
+        print ("Outward CandidateCache state")
+        print (cc)
         output.close ()
         server_socket.close ()
         slack_push("Trigger stop {0}".format(time.ctime()))

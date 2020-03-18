@@ -35,9 +35,23 @@ Cuts     = namedtuple('Cuts' ,['snmin','dmmin','wmax'])
 Cuts2    = namedtuple('Cuts2',['snmin','snmax','dmmin','dmmax','wmin','wmax'])
 # selection cuts
 one  = Cuts(snmin=8.5, dmmin=50, wmax=100E-3)
-two  = Cuts(snmin=7.0, dmmin=50, wmax=20E-3)
-vdif = Cuts(snmin=25.0,dmmin=00, wmax=100E-3)
-crab_psr = Cuts2(snmin=15.0, snmax=math.inf, dmmin=55.95, dmmax=57.45, wmin=1E-3, wmax=5E-3)
+two  = Cuts(snmin=6.0, dmmin=50, wmax=20E-3)
+vdif = Cuts(snmin=20.0,dmmin=00, wmax=100E-3)
+crab_psr = Cuts2(snmin=15.0, snmax=10000, dmmin=55.95, dmmax=57.45, wmin=1E-3, wmax=5E-3)
+
+def COMP (cu, c):
+    """Comparator"""
+    c1 = c.sn >= cu.snmin
+    c2 = c.dm >= cu.dmmin
+    c3 = c.width < cu.wmax
+    return c1 and c2 and c3
+
+def COMP2 (cu, c):
+    """Comparator"""
+    c1 = cu.snmin <= c.sn <= cu.snmax
+    c2 = cu.dmmin <= c.dm <= cu.dmmax
+    c3 = cu.wmin  <= c.width <= cu.wmax
+    return c1 and c2 and c3
 
 # Network
 vdif_group             = ('224.3.29.71',20003)
@@ -66,38 +80,6 @@ def make_server (nmax=2):
     # at most nmax queued -- set to the no. of antennas
     s.listen (nmax)
     return s
-
-def trigger(all_cands):
-    """ Go through beam and determine if there is an event
-    satisfying the trigger criteria.
-    """
-    triggers = []
-    we = [1e100,-1e100]
-    good_count = 0
-    for cand in all_cands:
-        if cand.width < we[0]:
-            we[0] = cand.width
-        if cand.width > we[1]:
-            we[1] = cand.width
-        c1 = cand.width < WMAX1
-        c2 = cand.dm    > DMMIN1
-        c3 = cand.sn    >= SNMIN1
-        d1 = cand.width < WMAX2
-        d2 = cand.dm    > DMMIN2
-        d3 = cand.sn    >= SNMIN2
-        c0 = c1 and c2 and c3
-        d0 = d1 and d2 and d3
-        good_count += c0
-        # send logic
-        if (c0 or d0):
-            triggers.append(cand)
-    print 'min/max width: ',we[0],we[1]
-    print 'len(all_cands)=%d'%(len(all_cands))
-    print 'good_count = %d'%(good_count)
-    print 'len(triggers)=%d'%(len(triggers))
-
-    return triggers
-
 
 def slack_push (msg):
     '''take msg and push to slack'''
@@ -152,7 +134,13 @@ if __name__ == '__main__':
 
             # add candidates to cc
             for l in lines[2:]:
-                cc.append (Candidate(None, l))
+                xc = Candidate (None, l)
+                rone = COMP (one, xc)
+                rtwo = COMP (two, xc)
+                rvdi = COMP (vdif, xc)
+                rpsr = COMP2 (crab_psr, xc)
+                if rone or rtwo or rvdi or rpsr:
+                  cc.append (xc)
 
             for trig in cc:
                 print 'TRIGGERING ON CANDIDATE:',trig
@@ -178,11 +166,9 @@ if __name__ == '__main__':
                 send_trigger(t, coadd_fbson_group)
                 if SINGLE and random.random() <= 0.25:
                     send_trigger(t, single_fbson_group)
-                if VDIF_ON and trig.sn >= VDIF_SN:
+                if VDIF_ON and COMP (vdif, trig):
                     send_trigger(t, vdif_group)
-                elif VDIF_DMMAX >= trig.dm and   \
-                     VDIF_DMMIN <= trig.dm and   \
-                     VDIF_SNMIN >= trig.sn:
+                if VDIF_ON and COMP2 (crab_psr, trig):
                     send_trigger(t, vdif_group)
                 if TEST_ON:
                     send_trigger(t, test_group)

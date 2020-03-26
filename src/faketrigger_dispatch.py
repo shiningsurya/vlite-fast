@@ -1,5 +1,4 @@
-#!/usr/bin/env python2.7
-from __future__ import print_function
+#!/usr/bin/python
 """
 Gather candidates from heimdall, 
 issue trigger
@@ -35,10 +34,9 @@ from cancache  import CandidateCache
 Cuts     = namedtuple('Cuts' ,['snmin','dmmin','wmax'])
 Cuts2    = namedtuple('Cuts2',['snmin','snmax','dmmin','dmmax','wmin','wmax'])
 # selection cuts
-base = Cuts(snmin=6.0, dmmin=50, wmax=100E-3)
 one  = Cuts(snmin=8.5, dmmin=50, wmax=100E-3)
 two  = Cuts(snmin=6.0, dmmin=50, wmax=20E-3)
-vdif = Cuts(snmin=20.0,dmmin=50, wmax=100E-3)
+vdif = Cuts(snmin=20.0,dmmin=00, wmax=100E-3)
 crab_psr = Cuts2(snmin=15.0, snmax=10000, dmmin=55.95, dmmax=57.45, wmin=1E-3, wmax=5E-3)
 
 def COMP (cu, c):
@@ -56,12 +54,13 @@ def COMP2 (cu, c):
     return c1 and c2 and c3
 
 # Network
-vdif_group             = ('224.3.29.71',20003)
+# send all triggers to single_fbson_group
+#vdif_group             = ('224.3.29.71',20003)
 single_fbson_group     = ('224.3.29.81',20003)
-coadd_fbson_group      = ('224.3.29.91',20003)
-test_group             = ('224.3.27.81',20003)
+#coadd_fbson_group      = ('224.3.29.91',20003)
+#test_group             = ('224.3.27.81',20003)
 host                   = 'vlite-nrl'
-HEIMDALL_PORT          = 27555
+HEIMDALL_PORT          = 55555
 TRIGGER_PORT           = 27556
 # for DM delay computation
 DM_DELAY               = 4.15e-3*(0.320**-2-0.384**-2)
@@ -72,7 +71,7 @@ def utc_diag_print(x):
     sf = "UTC {0: <24} #={1: <5} @ UTC {2: <24}"
     ntime = time.strftime("%Y-%m-%d-%H:%M:%S", time.gmtime())
     for k,v in x.items():
-        print (sf.format(k,len(v), ntime))
+        print sf.format(k,len(v), ntime)
 
 # set up a listening socket for heimdall server
 def make_server (nmax=2):
@@ -82,10 +81,6 @@ def make_server (nmax=2):
     # at most nmax queued -- set to the no. of antennas
     s.listen (nmax)
     return s
-
-def slack_push (msg):
-    '''take msg and push to slack'''
-    return os.system("/home/vlite-master/surya/asgard/bash/ag_slackpush \"{0}\"".format(msg))
 
 def send_trigger(trigger_struct, mcast_group):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -98,16 +93,13 @@ def send_trigger(trigger_struct, mcast_group):
 
 if __name__ == '__main__':
 
-    slack_push("Trigger start at {0}".format(time.ctime()))
+#    slack_push("Trigger start at {0}".format(time.ctime()))
     server_socket = make_server()
-    print ("Made server")
-    utc_groups = dict()
-    utc_sent_triggers = defaultdict(set)
+    print "Made server"
     ##
     cc = CandidateCache (GULPSIZE, MAXSIZE)
     ##
-    ofile = "/home/vlite-master/surya/logs/triggerdispatch_{0:10d}.log"
-    output = open(ofile.format(int(time.time())),'w+')
+    output = file('/home/vlite-master/surya/logs/tc.asc','a')
     try:
         while (True):
             clientsocket, address = server_socket.accept ()
@@ -120,12 +112,11 @@ if __name__ == '__main__':
                 if len(msg) == 0:
                     break
                 payload.append(msg)
-            sl = ''.join (payload).split ('\n')
-            lines = list(filter(lambda l: len(l) > 0,
-                map(str.strip, sl)))
+            lines = filter(lambda l: len(l) > 0,
+                map(str.strip,''.join(payload).split('\n')))
             #output.write('\n'.join(lines))
             # ^ no need to write *all* the candidates to file
-            print ('Received {0} new candidates.'.format(len(lines)-1))
+            print 'Received %d new candidates.'%(len(lines)-1)
 
             # do I want empty entries?
             if len(lines) == 2:
@@ -139,11 +130,15 @@ if __name__ == '__main__':
             # add candidates to cc
             for l in lines[2:]:
                 xc = Candidate (None, l)
-                if COMP (base, xc):
+                rone = COMP (one, xc)
+                rtwo = COMP (two, xc)
+                rvdi = COMP (vdif, xc)
+                rpsr = COMP2 (crab_psr, xc)
+                if rone or rtwo or rvdi or rpsr:
                   cc.append (xc)
 
             for trig in cc:
-                print ('TRIGGERING ON CANDIDATE:',trig)
+                print 'TRIGGERING ON CANDIDATE:',trig
                 i0,i1 = trig.i0,trig.i1
 
                 # send a trigger based on active_utc, i0, i1        
@@ -154,25 +149,16 @@ if __name__ == '__main__':
                 # TODO -- it would be nice to print out the latency between the candidate
                 # peak time and the time the trigger is sent; it is 40-50 s with current 
                 # gulp settings
-                print ('Sending trigger for UTC {0} with offset {1} and length {2:.2f}.'.format(utc,dump_offs,dump_len))
-                output.write ("[{3}] Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} I0={2}\n".format(trig.dm, trig.sn, i0, time.time(), 1e3*trig.width))
+                print 'Sending trigger for UTC %s with offset %d and length %.2f.'%(utc,dump_offs,dump_len)
                 s = "Trigger at UTC %s + %d"%(utc,dump_offs)
                 t = time.strptime(utc,'%Y-%m-%d-%H:%M:%S')
                 # add in 100ms buffer in case heimdall isn't perfectly accurate!
                 pt = 0.2
                 t0 = calendar.timegm(t) + dump_offs - pt
                 t1 = t0 + dump_len + (30*DM_DELAY)
-                print ("t0={0} t1={1}".format(t0,t1))
+                print 't0=',t0,' t1=',t1
                 t = struct.pack('ddffff128s',t0,t1,trig.sn,trig.dm,trig.width,pt,s)
-                send_trigger(t, coadd_fbson_group)
-                if SINGLE and random.random() <= 0.25:
-                    send_trigger(t, single_fbson_group)
-                if VDIF_ON and COMP (vdif, trig):
-                    send_trigger(t, vdif_group)
-                if VDIF_ON and COMP2 (crab_psr, trig):
-                    send_trigger(t, vdif_group)
-                if TEST_ON:
-                    send_trigger(t, test_group)
+                send_trigger(t, single_fbson_group)
     except KeyboardInterrupt:
         print ("exiting..")
     finally:
@@ -180,4 +166,3 @@ if __name__ == '__main__':
         print (cc)
         output.close ()
         server_socket.close ()
-        slack_push("Trigger stop {0}".format(time.ctime()))

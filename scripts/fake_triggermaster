@@ -1,0 +1,28 @@
+#!/bin/bash
+#set -x
+# arguments should be
+# $1 = header dada key 
+# $2 = header dada key 
+PACKAGE_DIR=/home/vlite-master/mtk
+
+rdir=/home/vlite-master/surya/faketriggers
+
+hbuffsz=4096
+nhbuff=16
+dbuffsz=10485760
+ndbuff=8
+
+let buffsz=${dbuffsz}*${ndbuff}
+
+
+# two dada buffers
+${PACKAGE_DIR}/vlite-fast/scripts/start_dada ${1} ${hbuffsz} ${nhbuff}
+${PACKAGE_DIR}/vlite-fast/scripts/start_dada ${2} ${dbuffsz} ${ndbuff}
+
+# program invocation
+agtriggermaster -k ${1} -l ${2} -b ${buffsz} --plotdir ${rdir} --dumpdir ${rdir}
+#agtriggermaster -k ${1} -l ${2} -b ${buffsz} | tee /home/vlite-master/surya/logs/triggermaster_"$(date -u +"%s")".log 
+
+# destory dada buffers
+/mnt/ssd/bin/dada_db -k ${1} -d
+/mnt/ssd/bin/dada_db -k ${2} -d

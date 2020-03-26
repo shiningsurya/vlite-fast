@@ -1,0 +1,37 @@
+#!/bin/bash
+PACKAGE_DIR=/home/vlite-master/mtk
+CUDA_DIR=/usr/cuda-10.1.243.418.87.00
+export LD_LIBRARY_PATH=${PACKAGE_DIR}/lib:${CUDA_DIR}/lib64:${LD_LIBRARY_PATH}
+#set -x
+# arguments should be
+# $1 = filterbank dada key 
+# $2 = trigger header dada key 
+# $3 = trigger data   dada key 
+# $4 = gpu_id
+
+rdir=/home/vlite-master/surya/faketriggers
+
+# start heimdall if we have specified a dada key
+nbit=8
+nbuffs=8
+if [ ${1} -gt 0 ]
+then
+# 40 MB --> 8s
+let buffsz=10485760*4
+# with 30720 samples per gulp (23.6s), that is 31457280 bytes
+# there are three internal buffers per heimdall gulp.
+${PACKAGE_DIR}/vlite-fast/scripts/start_dada2 ${1} ${buffsz} ${nbuffs}
+
+# I messed my own program invocation!
+# lmao
+agtriggerhook -b ${nbit} -s ${buffsz} -N ${nbuffs} -k ${1} -m ${2} -l ${3} > /home/vlite-master/surya/faketriggers/triggerhook_"$(date -u +"%s")".log &
+
+# how to propagate antenna -- will have to grab from header, instead
+/home/vlite-master/mtk/heimdall_nov2019/bin/heimdall_stream -nsamps_gulp 30720 -gpu_id ${4} -dm 2 1000 -boxcar_max 64 -output_dir ${rdir} -group_output -zap_chans 0 190 -zap_chans 3900 4096 -k ${1} -coincidencer vlite-nrl:55555 -v
+
+# 20190725 SURYA
+# wait $(pgrep process_baseband)
+
+/mnt/ssd/bin/dada_db -k ${1} -d
+
+fi

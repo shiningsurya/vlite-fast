@@ -5,8 +5,6 @@ header:
   - peak_time
   - t0
   - t1
-  - meta
-  - nant
 delays:
   - vlite_ant_id
   - vla_ant
@@ -17,5 +15,21 @@ delays:
   - lo_fiber
   - enable
 antprop:
+  - config
+  - datasetId
+  - creation
   - eopset
+    - <eopday>:
+      - epoch
+      - tai_utc
+      - ut1_utc
+      - x_pole
+      - y_pole
   - ants
+    - <ant>:
+      - widarID
+      - pad
+      - X
+      - Y
+      - Z
+      - offset

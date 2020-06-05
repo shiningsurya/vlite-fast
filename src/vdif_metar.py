@@ -21,11 +21,6 @@ DELAYS_COLS = [
     'lofiberlen',
     'enable'
 ]
-# default
-ANTPROP      = None
-ANTPROP_SEC  = 0
-# testpath for antprop
-ANTPROP_PATH = "/tmp/antprop_latest.xml"
 
 # directories
 ANTPROP_DIR  = "/home/vlite-master/surya/meta/antprop"
@@ -35,9 +30,9 @@ METADIR = "/home/vlite-master/surya/meta"
 ANTPROP_GROUP    = '239.192.3.1'
 VDIF_GROUP       = '224.3.29.71'
 VDIF_PORT        = 20003
-SERVER           = ('', 535353)
+SERVER           = ('', 53053)
 
-TIMEOUT = 10 # seconds
+TIMEOUT = 5 # seconds
 
 
 import os
@@ -46,13 +41,19 @@ import socket
 import select
 import struct
 import ubjson
+import time
 import xml.dom.minidom
-import numpy as np
+import pickle as pkl
+import numpy  as np
 import pandas as pd
 
 from xml.etree import ElementTree
 from xml2dict import XmlDictConfig
 
+
+def slack_push (msg):
+    '''take msg and push to slack'''
+    return os.system("/home/vlite-master/surya/asgard/bash/ag_slackpush \"{0}\"".format(msg))
 
 def setup_antprop_sock ():
     group = socket.inet_aton (ANTPROP_GROUP)
@@ -94,8 +95,6 @@ def get_delays ():
         dtype = DELAYS_DTYPES,
         comment = "#"
     )
-    print ("")
-    print (ds.dtypes)
     # pandas magic here
     ret = ds.to_dict (orient='list')
     nant = ds['enable'].sum()
@@ -107,8 +106,8 @@ def get_antprop (data):
     tree = ElementTree.XML (data)
     return  XmlDictConfig (tree)
 
-def test_antprop ():
-    with open (ANTPROP_PATH, "r") as f:
+def test_antprop (fn):
+    with open (fn, "r") as f:
         AP = f.read()
     return  get_antprop (AP)
 
@@ -116,6 +115,7 @@ def trigger_action (data):
     """packs and writes"""
     nant, de = get_delays ()
     t0,t1,sn,dm,width,pt,_ = struct.unpack ('ddffff128s', data)
+    print ("Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} I0={2}\n".format(dm, sn, t0, time.time(), 1e3*width))
     ##
     ret               = dict ()
     ret['sn']         = sn
@@ -124,7 +124,7 @@ def trigger_action (data):
     ret['peak_time']  = pt
     ret['t0']         = t0
     ret['t1']         = t1
-    ret['nant']       = nant
+    #ret['nant']       = nant
     ret['delays']     = de
     ret['antprops']   = ANTPROP
     ##
@@ -135,14 +135,27 @@ def trigger_action (data):
     with open ( os.path.join (METADIR, fn), 'wb') as f:
         ubjson.dump (ret, f)
 
+ANTPROP_SEC = 0
+ANTPROP     = None
+
 if __name__ == "__main__":
+    # load antprop
+    # testpath for antprop
+    ANTPROP_PATH = os.path.join (ANTPROP_DIR, "antprop_1586118970.xml")
+    ANTPROP_SEC  = 1586118970
+    # default to latest in antprop
+    ANTPROP      = test_antprop (ANTPROP_PATH)
     # setup socks
     apsock = setup_antprop_sock ()
     vdsock = setup_vdiftrigger_sock ()
+    print ("socket setup complete...")
+    slack_push("Meta track start at {0}".format(time.ctime()))
     ## main select loop
     try:
         while True:
+            print ("receiving....",end='')
             rrsock, _ , _ = select.select ([vdsock, apsock], [], [], TIMEOUT)
+            print (len(rrsock)," ready")
             for rrs in rrsock:
                 if rrs == apsock:
                     data = rrs.recv (8192)
@@ -162,6 +175,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print ("Received KeyboardInterrupt")
     finally:
+        slack_push("Meta track stop at {0}".format(time.ctime()))
         # close sockets
         apsock.close ()
         vdsock.close ()
@@ -169,6 +183,6 @@ if __name__ == "__main__":
         # write to disk
         if ANTPROP:
             with open (os.path.join(ANTPROP_DIR, "antprop_{0}.pkl".format(ANTPROP_SEC)), 'wb') as f:
-                f.write (ANTPROP)
+                pkl.dump (ANTPROP, f)
 
 

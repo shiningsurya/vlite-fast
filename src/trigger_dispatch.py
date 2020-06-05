@@ -61,7 +61,7 @@ def COMP2 (cu, c):
 vdif_group             = ('224.3.29.71',20003)
 single_fbson_group     = ('224.3.29.81',20003)
 coadd_fbson_group      = ('224.3.29.91',20003)
-test_group             = ('224.3.27.81',20003)
+test_group             = ('224.3.29.51',20003)
 host                   = 'vlite-nrl'
 HEIMDALL_PORT          = 27555
 TRIGGER_PORT           = 27556
@@ -178,6 +178,7 @@ if __name__ == '__main__':
                     send_trigger(t, vdif_group)
                     slack_push("Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} UTC={2} offset={3}".format(trig.dm, trig.sn, utc, dump_offs, 1e3*trig.width))
                 if TEST_ON:
+                    print ("TEST TEST TEST sent")
                     send_trigger(t, test_group)
     except KeyboardInterrupt:
         print ("exiting..")

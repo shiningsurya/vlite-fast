@@ -12,6 +12,8 @@ SINGLE  = False
 GULPSIZE= 50
 MAXSIZE = 150
 
+SNMAXMAX = 250.0
+
 ##############
 import socket
 import ctypes
@@ -38,8 +40,8 @@ Cuts2    = namedtuple('Cuts2',['snmin','snmax','dmmin','dmmax','wmin','wmax'])
 base = Cuts(snmin=6.0, dmmin=50, wmax=100E-3)
 one  = Cuts(snmin=8.5, dmmin=50, wmax=100E-3)
 two  = Cuts(snmin=6.0, dmmin=50, wmax=20E-3)
-vdif = Cuts(snmin=20.0,dmmin=50, wmax=100E-3)
-crab_psr = Cuts2(snmin=15.0, snmax=10000, dmmin=55.95, dmmax=57.45, wmin=1E-3, wmax=5E-3)
+vdif = Cuts(snmin=25.0,dmmin=50, wmax=100E-3)
+crab_psr = Cuts2(snmin=50.0, snmax=10000, dmmin=55.95, dmmax=57.45, wmin=1E-3, wmax=5E-3)
 
 def COMP (cu, c):
     """Comparator"""
@@ -143,6 +145,8 @@ if __name__ == '__main__':
                   cc.append (xc)
 
             for trig in cc:
+                if trig.sn > SNMAXMAX:
+                    continue
                 print ('TRIGGERING ON CANDIDATE:',trig)
                 i0,i1 = trig.i0,trig.i1
 
@@ -169,8 +173,10 @@ if __name__ == '__main__':
                     send_trigger(t, single_fbson_group)
                 if VDIF_ON and COMP (vdif, trig):
                     send_trigger(t, vdif_group)
+                    slack_push("Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} UTC={2} offset={3}".format(trig.dm, trig.sn, utc, dump_offs, 1e3*trig.width))
                 if VDIF_ON and COMP2 (crab_psr, trig):
                     send_trigger(t, vdif_group)
+                    slack_push("Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} UTC={2} offset={3}".format(trig.dm, trig.sn, utc, dump_offs, 1e3*trig.width))
                 if TEST_ON:
                     send_trigger(t, test_group)
     except KeyboardInterrupt:

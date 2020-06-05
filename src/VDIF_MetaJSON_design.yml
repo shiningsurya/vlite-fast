@@ -1,0 +1,21 @@
+header:
+  - sn
+  - dm
+  - width
+  - peak_time
+  - t0
+  - t1
+  - meta
+  - nant
+delays:
+  - vlite_ant_id
+  - vla_ant
+  - difx_host
+  - difx_iface
+  - clk_offset
+  - pad
+  - lo_fiber
+  - enable
+antprop:
+  - eopset
+  - ants

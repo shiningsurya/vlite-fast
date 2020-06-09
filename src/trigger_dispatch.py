@@ -25,11 +25,37 @@ import sys
 import signal
 import random
 import math
+import datetime as dt
+import astropy.coordinates as asc
+import astropy.units as au
 from   collections import deque,defaultdict,namedtuple
 
 from candidate import Candidate
 from cancache  import CandidateCache
 
+# cal options
+TSEP  = 10 # s of separation between dumps
+LSEP  = 10 * au.arcsec
+N_DAY = 10
+I_DAY = 0
+MONSKY  = 10 # minimum onsky 
+DUMP_TIME =  5 # s of dump
+# calibrators
+C3_RA = asc.Angle ( (5, 21, 9.887), unit='hourangle')
+C3_DE = asc.Angle ( (16, 38, 22.06), unit=au.degree)
+C3    = asc.SkyCoord (C3_RA, C3_DE, frame='icrs')
+C3CAND= Candidate (None, "0.00 0 0.00 0 0 0.00 0 0 0")
+# logic
+LRA   = 10000.0
+LDEC  = 10000.0
+CP    = None
+CPI   = 0.0   # epoch
+CPT   = 0.0   # integration time
+EPOCH = dt.datetime.utcfromtimestamp (0)
+LT0   = 0.0
+
+# utc datetime format 
+UTC_DT = "%Y-%m-%d-%H:%M:%S"
 
 # Structure
 # Cuts is specified for one cut.
@@ -135,8 +161,43 @@ if __name__ == '__main__':
 
             # this is file start
             toks = lines[0].split()
+
+            # if no candidates continue
+            if toks[-1] == '0':
+                continue
+
             # NB at least right now this appears to be local time
             utc = toks[0]
+            UTD = dt.datetime.strptime (utc, UTC_DT)
+            CPs = (UTD - EPOCH).total_seconds ()
+            TDE = time.time () - CPs
+
+            print (toks)
+            print (lines[1])
+
+            l1s = lines[1].split ()
+            RA  = float (l1s[0])
+            DEC = float (l1s[1])
+            if RA != LRA and DEC != LDEC:
+                LRA   = RA
+                LDEC  = DEC
+                CPI   = CPs
+                CP    = asc.SkyCoord (RA, DEC, unit='rad', frame='icrs')
+                CPT   = TDE
+            elif RA == LRA and DEC == LDEC:
+                CPT   = CPT + TDE
+
+            print ("Pointing at {0}{1} for {2:3.2f}s".format(CP.ra.to_string(au.hour), CP.dec.to_string(au.degree, alwayssign=1), CPT))
+
+            # add cal dump to cc
+            if CP.separation (C3) <= LSEP and I_DAY <= N_DAY and CPT >= MONSKY and LT0 >= CPI + TSEP:
+                t0 = CPI + CPT
+                t1 = t0 + DUMP_TIME
+                t = struct.pack('ddffff128s',t0,t1,0.0,0.0,0.0,0.0,"CAL_TRIGGER")
+                send_trigger(t, vdif_group)
+                slack_push ("Calibrator trigger.")
+                I_DAY = I_DAY + 1
+                LT0   = t0
 
             # add candidates to cc
             for l in lines[2:]:

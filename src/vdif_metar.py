@@ -30,7 +30,7 @@ METADIR = "/home/vlite-master/surya/meta"
 ANTPROP_GROUP    = '239.192.3.1'
 VDIF_GROUP       = '224.3.29.71'
 VDIF_PORT        = 20003
-SERVER           = ('', 53053)
+SERVER           = ('', 53000)
 
 TIMEOUT = 5 # seconds
 
@@ -111,11 +111,16 @@ def test_antprop (fn):
         AP = f.read()
     return  get_antprop (AP)
 
+def test_antprop_pkl (fn):
+    with open (fn, "rb") as f:
+        AP = pkl.load (f)
+    return AP
+
 def trigger_action (data):
     """packs and writes"""
     nant, de = get_delays ()
-    t0,t1,sn,dm,width,pt,_ = struct.unpack ('ddffff128s', data)
-    print ("Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} I0={2}\n".format(dm, sn, t0, time.time(), 1e3*width))
+    t0,t1,sn,dm,width,pt,s = struct.unpack ('ddffff128s', data)
+    print ("Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} I0={2}".format(dm, sn, t0, time.time(), 1e3*width))
     ##
     ret               = dict ()
     ret['sn']         = sn
@@ -124,6 +129,7 @@ def trigger_action (data):
     ret['peak_time']  = pt
     ret['t0']         = t0
     ret['t1']         = t1
+    ret['meta']       = s
     #ret['nant']       = nant
     ret['delays']     = de
     ret['antprops']   = ANTPROP
@@ -141,10 +147,10 @@ ANTPROP     = None
 if __name__ == "__main__":
     # load antprop
     # testpath for antprop
-    ANTPROP_PATH = os.path.join (ANTPROP_DIR, "antprop_1586118970.xml")
-    ANTPROP_SEC  = 1586118970
+    ANTPROP_PATH = os.path.join (ANTPROP_DIR, "antprop_1591644644.pkl")
+    ANTPROP_SEC  = 1591644644 
     # default to latest in antprop
-    ANTPROP      = test_antprop (ANTPROP_PATH)
+    ANTPROP      = test_antprop_pkl (ANTPROP_PATH)
     # setup socks
     apsock = setup_antprop_sock ()
     vdsock = setup_vdiftrigger_sock ()
@@ -152,13 +158,13 @@ if __name__ == "__main__":
     slack_push("Meta track start at {0}".format(time.ctime()))
     ## main select loop
     try:
+        print ("waiting....")
         while True:
-            print ("receiving....",end='')
-            rrsock, _ , _ = select.select ([vdsock, apsock], [], [], TIMEOUT)
-            print (len(rrsock)," ready")
+            rrsock, _ , _ = select.select ([apsock, vdsock], [], [], TIMEOUT)
             for rrs in rrsock:
                 if rrs == apsock:
-                    data = rrs.recv (8192)
+                    print ("received antprop")
+                    data,_ = rrs.recvfrom (8192)
                     try:
                         this_antprop = get_antprop (data)
                     except:

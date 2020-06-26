@@ -147,8 +147,8 @@ ANTPROP     = None
 if __name__ == "__main__":
     # load antprop
     # testpath for antprop
-    ANTPROP_PATH = os.path.join (ANTPROP_DIR, "antprop_1591644644.pkl")
-    ANTPROP_SEC  = 1591644644 
+    ANTPROP_PATH = os.path.join (ANTPROP_DIR, "antprop_1591712036.pkl")
+    ANTPROP_SEC  = 1591712036 
     # default to latest in antprop
     ANTPROP      = test_antprop_pkl (ANTPROP_PATH)
     # setup socks

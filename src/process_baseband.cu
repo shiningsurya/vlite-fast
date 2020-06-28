@@ -31,6 +31,13 @@ extern "C" {
 // rt profiling
 #define RT_PROFILE 1
 
+// white noise simulation
+// WARNING: Only enable when you want to do some white noising
+#define WHITE_NOISE
+#ifdef WHITE_NOISE 
+#warning "White noise is enabled. Do not run while searching."
+#endif
+
 static volatile int NBIT = 2;
 static FILE* logfile_fp = NULL;
 static FILE* fb_fp = NULL;
@@ -57,6 +64,9 @@ void usage ()
 	  "-i Inject an FRB at DM=80 periodicially in the output data.\n"
     "-s process a single observation, then quit (used for debugging)\n"
     "-p process a single recorded observation, then quit (used for profiling))\n"
+#ifdef WHITE_NOISE
+	  "-e seed for random number generator [long; default=42]"
+#endif
     "-g run on specified GPU\n");
 	  //"-m retain MUOS band\n"
 //	  ,(uint64_t)READER_SERVICE_PORT);
@@ -273,6 +283,9 @@ void get_cofbfile (char* fbfile, ssize_t fbfile_len, char* inchdr, vdif_header* 
 {
   // Open up filterbank file using timestamp and antenna
   int station_id = 99;
+  #ifdef WHITE_NOISE
+  station_id = 50;
+  #endif
   //ascii_header_get (inchdr, "STATIONID", "%d", &station_id);
   char currt_string[128];
   time_t epoch_seconds = vdif_to_unixepoch(vdhdr);
@@ -302,6 +315,20 @@ void get_fbfile (char* fbfile, ssize_t fbfile_len, char* inchdr, vdif_header* vd
   else
     snprintf (fbfile,fbfile_len,"%s/%s_ea%02d.fil",DATADIR,currt_string,station_id);
 }
+
+#ifdef WHITE_NOISE
+// changes the read header inplace
+void white_noise_meta (char * inhdr) {
+  // station  id
+  int sid = 0;
+  ascii_header_get (inhdr, "STATIONID", "%d", &sid);
+  // adding an offset of 30
+  sid += 30;
+  ascii_header_set (inhdr, "STATIONID", "%d", sid);
+  // name
+  ascii_header_set (inhdr, "NAME", "WHITENOISE");
+}
+#endif
 
 void check_buffer (dada_hdu_t* hdu, multilog_t* log)
 {
@@ -354,9 +381,16 @@ int main (int argc, char *argv[])
   int gpu_id = 0;
   size_t maxn = 0;
 
-  int arg = 0;
-  while ((arg = getopt(argc, argv, "hik:K:C:omw:b:P:r:stg:")) != -1) {
+  #ifdef WHITE_NOISE
+  long seed = 42;
+  #endif
 
+  int arg = 0;
+  #ifdef WHITE_NOISE
+  while ((arg = getopt(argc, argv, "hik:K:C:omw:b:P:r:stg:e:")) != -1) {
+  #else
+  while ((arg = getopt(argc, argv, "hik:K:C:omw:b:P:r:stg:")) != -1) {
+  #endif // WHITE_NOISE
     switch (arg) {
 
     case 'h':
@@ -382,6 +416,15 @@ int main (int argc, char *argv[])
         return -1;
       }
       break;
+    
+    #ifdef WHITE_NOISE
+    case 'e':
+      if (sscanf (optarg, "%li", &seed) != 1) {
+        fprintf (stderr, "pb: could not read seed from %s\n", optarg);
+        return -1;
+      }
+      break;
+    #endif
 
       /*
     case 'p':
@@ -729,6 +772,23 @@ int main (int argc, char *argv[])
     */
   }
 
+  // WHITE NOISE
+  // prepare
+  #ifdef WHITE_NOISE
+  #warning "White noise is enabled. Do not run for search operations."
+  multilog (mlog, LOG_INFO, 
+    "White noise enabled.\n"
+    "No real data being sent down the pipeline.\n"
+  );
+  curandGenerator_t       cugen;
+  curandcheck (
+    curandCreateGenerator (&cugen, CURAND_RNG_PSEUDO_DEFAULT)
+  );
+  curandcheck (
+    curandSetPseudoRandomGeneratorSeed (cugen, seed)
+  );
+  #endif // White noise
+
 
   #if PROFILE
   CUDA_PROFILE_STOP(start,stop,&alloc_time)
@@ -825,11 +885,19 @@ int main (int argc, char *argv[])
 
   cudaEventRecord(obs_start,0);
 
+
   multilog (mlog, LOG_INFO, "psrdada header:\n%s",ascii_hdr);
   multilog (mlog, LOG_INFO, "Beginning new observation.\n\n");
   fflush (logfile_fp);
   memcpy (incoming_hdr,ascii_hdr,hdr_size);
   dadacheck (ipcbuf_mark_cleared (hdu_in->header_block));
+
+  #ifdef WHITE_NOISE
+  // notify that white noise is enabled
+  // change header info 
+  multilog (mlog, LOG_INFO, "White noise enabled.\n\n");
+  white_noise_meta (incoming_hdr);
+  #endif
 
   // July 17, 2019.  Changes in writer ensure all arriving data are
   // contiguous and aligned to 1-s boundaries in the buffer. Read first
@@ -1145,12 +1213,27 @@ int main (int argc, char *argv[])
       //#if RT_PROFILE
       //cudaEventRecord (rt_start,0);
       //#endif
+
       ////// CONVERT UINTS to FLOATS //////
+      //////          OR             //////
+      ////// FILL WITH WHITE NOISE   //////
       #if PROFILE
       cudaEventRecord (start,0);
       #endif 
+
+      #ifdef WHITE_NOISE 
+      // fill fft_in with samps_per_chunk white noise
+      curandcheck (
+        curandGenerateNormal (
+          cugen, fft_in, samps_per_chunk,
+          0.0f, 33.818f
+        )
+      );
+      #else
       convertarray <<<nsms*32,NTHREAD>>> (fft_in,udat_dev,samps_per_chunk);
       cudacheck (cudaGetLastError () );
+      #endif // WHITE_NOISE
+
       #if PROFILE
       CUDA_PROFILE_STOP(start,stop,&elapsed)
       convert_time += elapsed;
@@ -1599,6 +1682,10 @@ int main (int argc, char *argv[])
   if (kur_hst) cudaFreeHost (kur_hst);
   if (kur_fb_hst) cudaFreeHost (kur_fb_hst);
   if (kur_weights_hst) cudaFreeHost (kur_weights_hst);
+  #endif
+
+  #ifdef WHITE_NOISE
+  curandDestroyGenerator (cugen);
   #endif
 
   // these are on the stack, don't think we want this

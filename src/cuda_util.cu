@@ -24,6 +24,7 @@ void curandcheck(curandStatus_t err){
   if (err!=CURAND_STATUS_SUCCESS)
   {
     fprintf (stderr, "curand ERROR! No. = %d\n", err);
+    fflush (stderr);
     //exit(0);
     throw 20;
   }

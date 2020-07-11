@@ -1,0 +1,53 @@
+#!/bin/bash
+#PACKAGE_DIR=/home/vlite-master/mtk
+PACKAGE_DIR=/home/vlite-master/surya
+#PACKAGE_DIR=${VLITE_PACKAGE_DIR}
+set -x
+# arguments should be
+# $1 = coadder dada key 
+# $2 = write_fb
+# $3 = nbit
+# $4 = gpu_id
+
+if [ ${1} -gt 0 ]
+then
+  let buffsz=655360*8*${3}
+  # 65536 is one second per bit
+  # 8 is the bufflen we want (s)
+  ##########
+  ${PACKAGE_DIR}/vlite-fast/scripts/start_dada ${1} ${buffsz} 8 
+  ##########
+  #/home/vlite-master/surya/asgard/bin/agtriggerhook  -k ${4} -N 8 -b ${6} -s ${buffsz} &
+  #${PACKAGE_DIR}/vlite-fast/scripts/start_dada ${4} 5242880 32
+  #${PACKAGE_DIR}/vlite-fast/scripts/start_dada ${4} 1310720 128 
+  #${PACKAGE_DIR}/vlite-fast/scripts/start_dada ${4}  2621440 32
+  # if Coadder key is non zero run start_coadder
+ # ${PACKAGE_DIR}/vlite-fast/scripts/start_coadd 60 10485760 ${5} 
+ #echo "Should have called start_coadd"
+fi
+
+# start nvidia-smi logging if not already
+# MTK 12/17/2018 -- disable nvidia-smi logging for now
+#if [ ! $(pgrep -x nvidia-smi) ]
+#then
+#  nvidia-smi -f ${PACKAGE_DIR}/logs/nvidia-smi_log_$(hostname).asc -l 2 &
+#  NVIDIA_SMI_PID=$!
+#else
+#  NVIDIA_SMI_PID=0
+#fi
+#echo "NVIDIA_SMI_PID=${NVIDIA_SMI_PID}"
+
+#/home/vlite-master/surya/vlite-fast/src/genfb -k ${1} -f ${2} -b ${3} -g ${4} -o -s $RANDOM
+/home/vlite-master/surya/vlite-fast/src/genfb_injector -k ${1} -f ${2} -b ${3} -g ${4} -o -s $RANDOM
+
+if [ ${1} -gt 0 ]
+then
+  #echo "Not removing dada_db"
+  #echo "/mnt/ssd/bin/dada_db -k ${1} -d"
+  /mnt/ssd/bin/dada_db -k ${1} -d
+fi
+
+#if [ $NVIDIA_SMI_PID -gt 0 ]
+#then
+#  kill $NVIDIA_SMI_PID
+#fi

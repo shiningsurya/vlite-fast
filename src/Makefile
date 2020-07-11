@@ -13,10 +13,10 @@ CUDA_ARCH = -gencode arch=compute_35,code=sm_35 -gencode arch=compute_52,code=sm
 CUDA_DIR = /usr/cuda-10.1.243.418.87.00
 NVCC = $(CUDA_DIR)/bin/nvcc
 MAKE_PACKAGE_DIR = /home/vlite-master/mtk
-#PACKAGE_DIR = /home/vlite-master/surya
-PACKAGE_DIR = /home/vlite-master/mtk
+PACKAGE_DIR = /home/vlite-master/surya
+#PACKAGE_DIR = /home/vlite-master/mtk
 
-all: process_baseband genbase readbase messenger writer
+all: process_baseband genbase readbase messenger writer genfb
 
 install: all
 	cp -p process_baseband ${PACKAGE_DIR}/bin
@@ -30,6 +30,12 @@ process_baseband: process_baseband.o util.o cuda_util.o utils.o multicast.o pb_k
 	$(NVCC) -o $@ $^ -L${CUDA_DIR}/lib64  -lcufft -lcurand -L${MAKE_PACKAGE_DIR}/lib -lvdifio -lpsrdada
 	chmod a+rx $@
 
+genfb.o: genfb.cu pb_kernels.cu process_baseband.h def.h injection.h
+	$(NVCC) -g -O2 $(CUDA_ARCH) --compiler-options -Wall -c -o $@ -I${CUDA_DIR}/include -I${MAKE_PACKAGE_DIR}/include genfb.cu
+
+genfb_injector.o: genfb_injector.cu pb_kernels.cu process_baseband.h def.h injection.h
+	$(NVCC) -g -O2 $(CUDA_ARCH) --compiler-options -Wall -c -o $@ -I${CUDA_DIR}/include -I${MAKE_PACKAGE_DIR}/include genfb_injector.cu
+
 process_baseband.o: process_baseband.cu pb_kernels.cu process_baseband.h def.h
 	$(NVCC) -g -O2 $(CUDA_ARCH) --compiler-options -Wall -c -o $@ -I${CUDA_DIR}/include -I${MAKE_PACKAGE_DIR}/include process_baseband.cu
 
@@ -39,6 +45,14 @@ pb_kernels.o: pb_kernels.cu process_baseband.h def.h
 genbase: genbase.cu util.o cuda_util.o
 	$(NVCC) -g -O2 $(CUDA_ARCH) --compiler-options -Wall -I${CUDA_DIR}/include -I${CUDA_DIR}/samples/common/inc -I${MAKE_PACKAGE_DIR}/include -c genbase.cu
 	$(NVCC) -o genbase util.o cuda_util.o genbase.o -lcufft -lcurand -L${MAKE_PACKAGE_DIR}/lib -lvdifio -lpsrdada
+	chmod a+rx $@
+
+genfb: genfb.o pb_kernels.o cuda_util.o util.o utils.o multicast.o
+	$(NVCC) -o $@ $^ -L${CUDA_DIR}/lib64  -lcufft -lcurand -L${MAKE_PACKAGE_DIR}/lib -lvdifio -lpsrdada
+	chmod a+rx $@
+
+genfb_injector: genfb_injector.o pb_kernels.o cuda_util.o util.o utils.o multicast.o
+	$(NVCC) -o $@ $^ -L${CUDA_DIR}/lib64  -lcufft -lcurand -L${MAKE_PACKAGE_DIR}/lib -lvdifio -lpsrdada
 	chmod a+rx $@
 
 readbase:	readbase.c util.o

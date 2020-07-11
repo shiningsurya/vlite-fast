@@ -5,6 +5,8 @@ src/messenger
 src/process_baseband
 src/writer
 src/readbase
+src/genfb
+src/genfb_injector
 .nfs*
 *.pyc
 *.swp

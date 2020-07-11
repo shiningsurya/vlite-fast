@@ -12,11 +12,13 @@ static const char mc_antpropgrp[] = "239.192.3.1";
 static const char mc_obsinfogrp[] = "239.192.3.2";
 static const char mc_alertgrp[] = "239.192.2.3";
 static const char mc_vlitegrp[] = "224.3.29.71";
+static const char mc_injectgrp[] = "224.3.30.91";
 
 #define MC_READER_PORT 20000
 #define MC_WRITER_PORT 20001
 #define MC_INFO_PORT 20002
 #define MC_TRIGGER_PORT 20003
+#define MC_INJECT_PORT 20004
 
 //Multicast ports for executor packets
 #define MULTI_OBSINFO_PORT 53001

@@ -62,18 +62,21 @@ __global__ void digitize (float* idat, uint8_t* udat, size_t n);
 
 void usage ()
 {
-  fprintf(stdout,"Usage: genbase [options]\n"
-	  "-t seconds to simulate (default: 5)"
+  fprintf(stdout,
+    "Usage: genbase [options]\n"
+	  "-t seconds to simulate (default: 5)\n"
 	  "-n observations to simulate (default: 1)\n"
-	  "-p pulse period [s; default 0.5]"
+	  "-p pulse period [s; default 0.5]\n"
+	  "-T epoch of the first observation\n"
     // this is used to simulate an FRB e.g. with -p 1.0 -k 100
-	  "-k skip period [int; only produce a pulse every skip_period pulses]"
-	  "-a amplitude as fraction of Tsys [default 0.05]"
-	  "-s scale of second polarization relative to first [default 1.0]"
-	  "-r seed for random number generator [long; default=42]"
-	  "-d dm [default=30; NB this is about the largest feasible]"
-	  "-e write to disk rather than psrdada buffer (default: false)"
-	  "-f add RFI to observations (default: false)");
+	  "-k skip period [int; only produce a pulse every skip_period pulses]\n"
+	  "-a amplitude as fraction of Tsys [default 0.05]\n"
+	  "-s scale of second polarization relative to first [default 1.0]\n"
+	  "-r seed for random number generator [long; default=42]\n"
+	  "-d dm [default=30; NB this is about the largest feasible]\n"
+	  "-e write to disk rather than psrdada buffer (default: false)\n"
+	  "-f add RFI to observations (default: false)\n"
+  );
 }
 
 int main(int argc, char *argv[])

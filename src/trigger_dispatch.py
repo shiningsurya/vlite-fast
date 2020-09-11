@@ -12,6 +12,7 @@ SINGLE  = False
 GULPSIZE= 50
 MAXSIZE = 150
 
+MINWIDTH = 1e-3 # s
 SNMAXMAX = 250.0
 
 ##############
@@ -33,6 +34,9 @@ from   collections import deque,defaultdict,namedtuple
 from candidate import Candidate
 from cancache  import CandidateCache
 
+# rfi rate cutting
+RFI_RATECUT = 2.0
+
 # cal options
 TSEP  = 10 # s of separation between dumps
 LSEP  = 10 * au.arcsec
@@ -46,13 +50,19 @@ C3_DE = asc.Angle ( (16, 38, 22.06), unit=au.degree)
 C3    = asc.SkyCoord (C3_RA, C3_DE, frame='icrs')
 C3CAND= Candidate (None, "0.00 0 0.00 0 0 0.00 0 0 0")
 # logic
+## ra, dec of pointings
+## initialized to garbage values
 LRA   = 10000.0
 LDEC  = 10000.0
+## astropy.SkyCoord object
 CP    = None
-CPI   = 0.0   # epoch
-CPT   = 0.0   # integration time
+## 
+CP_start   = 0.0   # epoch
+CP_int     = 0.0   # integration time
+# 1970/1/1 
 EPOCH = dt.datetime.utcfromtimestamp (0)
-LT0   = 0.0
+# old utd
+utd = None
 
 # utc datetime format 
 UTC_DT = "%Y-%m-%d-%H:%M:%S"
@@ -63,10 +73,10 @@ UTC_DT = "%Y-%m-%d-%H:%M:%S"
 Cuts     = namedtuple('Cuts' ,['snmin','dmmin','wmax'])
 Cuts2    = namedtuple('Cuts2',['snmin','snmax','dmmin','dmmax','wmin','wmax'])
 # selection cuts
-base = Cuts(snmin=6.0, dmmin=50, wmax=100E-3)
+base = Cuts(snmin=7.0, dmmin=50, wmax=100E-3)
 one  = Cuts(snmin=8.5, dmmin=50, wmax=100E-3)
-two  = Cuts(snmin=6.0, dmmin=50, wmax=20E-3)
-vdif = Cuts(snmin=25.0,dmmin=50, wmax=100E-3)
+two  = Cuts(snmin=7.0, dmmin=50, wmax=20E-3)
+vdif = Cuts(snmin=55.0,dmmin=50, wmax=100E-3)
 crab_psr = Cuts2(snmin=50.0, snmax=10000, dmmin=55.95, dmmax=57.45, wmin=1E-3, wmax=5E-3)
 
 def COMP (cu, c):
@@ -153,7 +163,6 @@ if __name__ == '__main__':
                 map(str.strip, sl)))
             #output.write('\n'.join(lines))
             # ^ no need to write *all* the candidates to file
-            print ('Received {0} new candidates.'.format(len(lines)-1))
 
             # do I want empty entries?
             if len(lines) == 2:
@@ -163,41 +172,57 @@ if __name__ == '__main__':
             toks = lines[0].split()
 
             # if no candidates continue
+            instant_cands = int(toks[-1]) - 1
             if toks[-1] == '0':
                 continue
 
             # NB at least right now this appears to be local time
-            utc = toks[0]
-            UTD = dt.datetime.strptime (utc, UTC_DT)
-            CPs = (UTD - EPOCH).total_seconds ()
-            TDE = time.time () - CPs
+            # utc begin time, utd end time
+            utc = dt.datetime.strptime (toks[0], UTC_DT)
+            old_utd = utd
+            utd = dt.datetime.strptime (toks[1], UTC_DT)
+            # actual time span of the candidates
+            if old_utd is None:
+                old_utd = utc
+            CPs = (utd - old_utd).total_seconds ()
+            # delay
+            TDE = (dt.datetime.now() - utc).total_seconds()
+            print ('Received {0} new candidates from batch of {1}s.'.format(len(lines)-1,CPs))
 
-            print (toks)
-            print (lines[1])
+            # RFI bypass mitigation
+            if CPs == 0.0:
+                instant_rate = 1.0
+            else:
+                instant_rate = instant_cands / CPs
+            print ("Trigger rate = {:3.2f} /s".format(instant_rate))
+            if instant_rate > RFI_RATECUT:
+                continue
 
+            # pointing info logic
+            # second line is pointing info
             l1s = lines[1].split ()
             RA  = float (l1s[0])
             DEC = float (l1s[1])
             if RA != LRA and DEC != LDEC:
                 LRA   = RA
                 LDEC  = DEC
-                CPI   = CPs
+                CP_start   =  utc
+                CP_int     = CPs
                 CP    = asc.SkyCoord (RA, DEC, unit='rad', frame='icrs')
-                CPT   = TDE
             elif RA == LRA and DEC == LDEC:
-                CPT   = CPT + TDE
+                CP_int = CP_int + CPs
 
-            print ("Pointing at {0}{1} for {2:3.2f}s".format(CP.ra.to_string(au.hour), CP.dec.to_string(au.degree, alwayssign=1), CPT))
+            print ("Pointing at {0}{1} for {2:3.2f}s".format(CP.ra.to_string(au.hourangle, fields=2), CP.dec.to_string(au.degree, alwayssign=1, fields=2), CP_int))
 
             # add cal dump to cc
-            if CP.separation (C3) <= LSEP and I_DAY <= N_DAY and CPT >= MONSKY and LT0 >= CPI + TSEP:
-                t0 = CPI + CPT
+            if False and CP.separation (C3) <= LSEP and I_DAY <= N_DAY and CP_int >= MONSKY and CP_int % TSEP == 0.0:
+                t0 = (CP_start - EPOCH).total_seconds()
+                t0 += CP_int
                 t1 = t0 + DUMP_TIME
                 t = struct.pack('ddffff128s',t0,t1,0.0,0.0,0.0,0.0,"CAL_TRIGGER")
                 send_trigger(t, vdif_group)
                 slack_push ("Calibrator trigger.")
                 I_DAY = I_DAY + 1
-                LT0   = t0
 
             # add candidates to cc
             for l in lines[2:]:
@@ -206,7 +231,7 @@ if __name__ == '__main__':
                   cc.append (xc)
 
             for trig in cc:
-                if trig.sn > SNMAXMAX:
+                if not COMP2(crab_psr, trig) and (trig.sn > SNMAXMAX or trig.width < MINWIDTH):
                     continue
                 print ('TRIGGERING ON CANDIDATE:',trig)
                 i0,i1 = trig.i0,trig.i1
@@ -222,10 +247,10 @@ if __name__ == '__main__':
                 print ('Sending trigger for UTC {0} with offset {1} and length {2:.2f}.'.format(utc,dump_offs,dump_len))
                 output.write ("[{3}] Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} I0={2}\n".format(trig.dm, trig.sn, i0, time.time(), 1e3*trig.width))
                 s = "Trigger at UTC %s + %d"%(utc,dump_offs)
-                t = time.strptime(utc,'%Y-%m-%d-%H:%M:%S')
                 # add in 100ms buffer in case heimdall isn't perfectly accurate!
                 pt = 0.2
-                t0 = calendar.timegm(t) + dump_offs - pt
+                utc_epoch = (utc - EPOCH).total_seconds()
+                t0 = utc_epoch + dump_offs - pt
                 t1 = t0 + dump_len + (30*DM_DELAY)
                 print ("t0={0} t1={1}".format(t0,t1))
                 t = struct.pack('ddffff128s',t0,t1,trig.sn,trig.dm,trig.width,pt,s)

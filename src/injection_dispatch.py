@@ -6,8 +6,8 @@ import socket
 import struct
 import time
 
-SIG = "then95"
-NNN = 200 * 15
+SIG = "decimate4"
+NNN = 50 * 15
 SLEEPTIME = 14
 INJECTION_STRUCT_T = "ffc"
 

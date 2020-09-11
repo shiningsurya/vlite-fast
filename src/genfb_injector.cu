@@ -43,6 +43,7 @@ extern "C" {
 // rt profiling
 //#define RT_PROFILE 1
 
+// fighting against decimation
 
 static volatile int NBIT = 8;
 static FILE* logfile_fp = NULL;

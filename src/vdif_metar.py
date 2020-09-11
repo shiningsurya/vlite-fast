@@ -121,6 +121,7 @@ def trigger_action (data):
     nant, de = get_delays ()
     t0,t1,sn,dm,width,pt,s = struct.unpack ('ddffff128s', data)
     print ("Triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} I0={2}".format(dm, sn, t0, time.time(), 1e3*width))
+    slack_push ("ML triggered on DM={0:3.2f} S/N={1:2.1f} width={4:2.1f} I0={2}".format(dm, sn, t0, time.time(), 1e3*width))
     ##
     ret               = dict ()
     ret['sn']         = sn
@@ -147,8 +148,8 @@ ANTPROP     = None
 if __name__ == "__main__":
     # load antprop
     # testpath for antprop
-    ANTPROP_PATH = os.path.join (ANTPROP_DIR, "antprop_1591712036.pkl")
-    ANTPROP_SEC  = 1591712036 
+    ANTPROP_PATH = os.path.join (ANTPROP_DIR, "antprop_1593313374.pkl")
+    ANTPROP_SEC  = 1593313374
     # default to latest in antprop
     ANTPROP      = test_antprop_pkl (ANTPROP_PATH)
     # setup socks

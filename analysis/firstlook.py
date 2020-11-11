@@ -2,8 +2,10 @@
 First look at the voltages
 """
 import os
+import sys
 import glob
 import time
+import ubjson
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,6 +17,12 @@ import optim
 import baseband
 import beamforming
 from   baseband import VDIFHeader
+
+def read_meta (x):
+    """ Reads meta file """
+    with open (x, "rb") as f:
+        m = ubjson.load (f)
+    return m
 
 def build_filterbanks(data,nsamp=12500,navg=10,antennas=None,pol=-1):
     """ Quick and dirty method for filterbanking and square-law detecting
@@ -60,11 +68,32 @@ def build_filterbanks(data,nsamp=12500,navg=10,antennas=None,pol=-1):
     return results,tsamp
 
 if __name__ == "__main__":
-    data          = glob.glob ("/*.vdif")
+    DIR = "/data/vlite-fast/voltages/crab_2020_08"
+    VD   = "*1347*.vdif"
+    META = "1598013475_i1_dm56.75_sn55.51_wd03.91.meta"
+    ##
+    ## ideally read the meta file
+    meta   = read_meta (os.path.join (DIR, META))
+    T0     = meta["t0"]
+    DM0    = meta["dm"]
+    width  = meta["width"]
+
+    fnames   = sorted (glob.glob (os.path.join (DIR, VD) ))
+    print (fnames)
+    print (len(fnames))
+    sys.exit (0) 
+
+    data     = beamforming.load_dataset(fnames)
+    antennas = data['antennas']
+    print ("Found antennas=", antennas)
     allfbs, tsamp = build_filterbanks (data, navg=8, pol=-1)
-    fb            = filterbanks.mean (axis=0)[None,...]
+    fb            = allfbs.mean (axis=0)[None,...]
     _,nchans      = fb.shape
     freqs         = incoh.FreqTable (nchans)
+
+
+    I0 = int(round((T0-data[data['antennas'][0]]['header'].get_unix_timestamp())/tsamp))
+    I1 = int(round((T0-data[data['antennas'][0]]['header'].get_unix_timestamp()+0.2)/tsamp))
 
     ##
     ## De-disperse to original DM

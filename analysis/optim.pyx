@@ -24,7 +24,7 @@ def Qn (np.ndarray[np.float32_t, ndim=1] s):
         Will ask Matthew
     """
     cdef Py_ssize_t size = s.size
-    cdef np.ndarray[np.float32_t, ndim=1] diffs = np.zeros ( size * (size-1) // 2 )
+    cdef np.ndarray[np.float32_t, ndim=1] diffs = np.zeros ( size * (size-1) // 2 , dtype=np.float32)
 
     cdef Py_ssize_t counter  = 0
     cdef Py_ssize_t newsamps = 0
@@ -46,7 +46,7 @@ def Width (np.ndarray[np.float32_t, ndim=1] ts, id_t start, id_t stop, id_t wmax
         stop  (np.uint64_t) stop  of the ON pulse
     """
     cdef Py_ssize_t nsamps = ts.shape[0]
-    cdef np.ndarray[id_t, ndim=1] widths = np.arange (1, wmax+1, 2)
+    cdef np.ndarray[id_t, ndim=1] widths = np.arange (1, wmax+1, 2, dtype=np.uint64)
     cdef Py_ssize_t nwidths = widths.shape[0]
 
     cdef id_t onsamps  = stop - start
@@ -79,18 +79,18 @@ def Width (np.ndarray[np.float32_t, ndim=1] ts, id_t start, id_t stop, id_t wmax
 def DM (datype fb, np.float32_t tsamp, np.float32_t dm0, 
         id_t start, id_t stop, 
         np.float32_t delta_dm = 1e-3, np.float32_t dm_range = 1e-1,
-        np.float32_t width = 0.0
+        np.uint64_t width = 0
         ):
     """ DM optimization  """
     cdef Py_ssize_t nstep  = int (round ( 2 * dm_range / delta_dm ))
     
-    cdef np.ndarray[np.float32_t, ndim=1] dms = np.linspace (-dm_range, dm_range,nstep)
+    cdef np.ndarray[np.float32_t, ndim=1] dms = np.linspace (-dm_range, dm_range,nstep, dtype=np.float32)
     dms += dm0
     
     
     cdef np.ndarray[np.float32_t, ndim=1] sns = np.zeros (nstep, dtype=np.float32)
 
-    cdef Py_ssize_t nchans = fb.shape[1]
+    cdef Py_ssize_t nchans = fb.shape[0]
     cdef np.ndarray[np.float32_t, ndim=1] freqs = incoh.FreqTable (nchans)
     cdef np.ndarray[np.uint64_t, ndim=1]  delays
     cdef datype ddfb
@@ -101,12 +101,12 @@ def DM (datype fb, np.float32_t tsamp, np.float32_t dm0,
     for idm, dm in enumerate (dms):
         delays = incoh.DMDelays (dm, tsamp, freqs)
         ddfb   = incoh.Incoherent (fb, delays)
-        ddfb[:,mask] = 0
-        pp     = ddfb[:,mask].mean(0)
+        #ddfb[mask,:] = 0
+        pp     = ddfb[mask,:].mean(0)
         #
         mean   = np.median (pp[start:stop])
         std    = Qn (pp[start:stop])
-        if width > 0.0:
+        if width > 0:
             pp = sndf.uniform_filter1d (pp, width)
             std /= width**0.5
         sns[idm] = (pp.max() - mean ) / std

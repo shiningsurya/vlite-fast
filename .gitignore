@@ -11,3 +11,9 @@ src/genfb_injector
 *.pyc
 *.swp
 *.swo
+
+*.so
+
+incoherent.c
+optim.c
+*.pkl

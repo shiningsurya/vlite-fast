@@ -18,10 +18,10 @@ ctypedef np.uint64_t DDTYPE_t
 def FreqTable (np.uint64_t nchans):
     """foff is negative"""
     cdef np.ndarray[np.float32_t, ndim=1] ret = np.zeros (nchans, dtype=np.float32)
-    cdef np.float32_t fch1 = c.FCH1
-    cdef np.float32_t foff = - c.BW / nchans
+    cdef np.float32_t fch0 = c.FCH0
+    cdef np.float32_t foff = c.FFT_FOFF
     for i in range (nchans):
-        ret[i] = fch1 + (i * foff)
+        ret[i] = fch0 + ((nchans-i-1) * foff)
     return ret
 
 
@@ -42,12 +42,13 @@ def DMDelays (np.float32_t dm, np.float32_t tsamp, np.ndarray[np.float32_t, ndim
         if12  = 1.0 / f1 / f1
         ret[i] = <np.uint64_t>( dm * 4148.741601 * ( if12 - if02 ) / tsamp )
     #
+    #ret = ret[::-1]
     return ret
 
 
 @cython.boundscheck (False)
 @cython.wraparound  (False)
-def Incoherent (datype fb, np.ndarray[DDTYPE_t, ndim=1] delays):
+def Incoherent (datype fb, np.ndarray[DDTYPE_t, ndim=1] delays, Py_ssize_t outsize = 0):
     if fb.shape[0] != delays.shape[0]:
         raise ValueError ("Incorrect delays size!")
     # constants 
@@ -57,6 +58,8 @@ def Incoherent (datype fb, np.ndarray[DDTYPE_t, ndim=1] delays):
     if nsamps <= maxdelay:
         raise ValueError ("DM range too high!")
     cdef Py_ssize_t ddnsamps = nsamps - maxdelay
+    if outsize != 0:
+        ddnsamps = outsize
     cdef Py_ssize_t tidx     = 0
     # output array
     cdef datype ret = np.zeros ([nchans, ddnsamps], dtype=fb.dtype)

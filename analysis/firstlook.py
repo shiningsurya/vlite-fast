@@ -89,8 +89,25 @@ if __name__ == "__main__":
     allfbs, tsamp = build_filterbanks (data, navg=8, pol=-1)
     fb            = allfbs.mean (axis=0)
     nchans        = fb.shape[0]
-    freqs         = incoh.FreqTable (nchans)
-    print (nchans)
+
+    ifb  = fb[-3072:,:]
+    nchans = ifb.shape[0]
+    freqs  = incoh.FreqTable (nchans)
+    delays = incoh.DMDelays (DM0, tsamp, freqs)
+    ddfb   = incoh.Incoherent (ifb, delays)
+
+    plt.figure ()
+    #plt.imshow (ddfb, aspect='auto', cmap='jet')
+    plt.plot (ifb.mean(0))
+    plt.title (ifb.shape)
+    plt.savefig ("ifb.png")
+
+
+    sys.exit (0)
+
+
+
+
 
     mask          = c.CHAN_MASK ()
 

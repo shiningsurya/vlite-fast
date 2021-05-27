@@ -97,12 +97,11 @@ def DM (datype fb, np.float32_t tsamp, np.float32_t dm0,
     cdef np.ndarray[np.float32_t, ndim=1] pp
     cdef np.float32_t mean
     cdef np.float32_t std
-    cdef np.ndarray[np.uint8_t, ndim=1] mask = c.CHAN_MASK()
     for idm, dm in enumerate (dms):
         delays = incoh.DMDelays (dm, tsamp, freqs)
         ddfb   = incoh.Incoherent (fb, delays)
         #ddfb[mask,:] = 0
-        pp     = ddfb[mask,:].mean(0)
+        pp     = ddfb.mean(0)
         #
         mean   = np.median (pp[start:stop])
         std    = Qn (pp[start:stop])

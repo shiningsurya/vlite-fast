@@ -1,0 +1,25 @@
+#!/bin/bash
+
+SIG="superclean_badai"
+
+ff="${SIG}_vlite-difx"
+LPATH="/home/vlite-master/surya/vlite-fast/analysis"
+
+echo
+echo "Delete list run with signature=${SIG}"
+
+SPELL="rm -f"
+
+ssh vd1 parallel ${SPELL} {} :::: ${LPATH}/${ff}1.list
+ssh vd2 parallel ${SPELL} {} :::: ${LPATH}/${ff}2.list
+ssh vd3 parallel ${SPELL} {} :::: ${LPATH}/${ff}3.list
+ssh vd4 parallel ${SPELL} {} :::: ${LPATH}/${ff}4.list
+ssh vd5 parallel ${SPELL} {} :::: ${LPATH}/${ff}5.list
+ssh vd6 parallel ${SPELL} {} :::: ${LPATH}/${ff}6.list
+ssh vd7 parallel ${SPELL} {} :::: ${LPATH}/${ff}7.list
+ssh vd8 parallel ${SPELL} {} :::: ${LPATH}/${ff}8.list
+ssh vd9 parallel ${SPELL} {} :::: ${LPATH}/${ff}9.list
+
+ssh vd10 parallel ${SPELL} {} :::: ${LPATH}/${ff}10.list
+ssh vd11 parallel ${SPELL} {} :::: ${LPATH}/${ff}11.list
+ssh vd12 parallel ${SPELL} {} :::: ${LPATH}/${ff}12.list

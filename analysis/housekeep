@@ -1,0 +1,14 @@
+#!/bin/bash
+#set -x
+# arguments should be
+# $1 = meta-file
+
+PACKAGE_DIR=/home/vlite-master/surya
+MPIRUN="mpirun"
+
+DC="python housekeep.py $1 -d -p"
+
+mpirun  --tune ${PACKAGE_DIR}/vlite-fast/config/coadd_mca.conf \
+ -host vd11,vd1,vd2,vd3,vd4,vd5,vd6,vd7,vd8,vd9,vd10,vd12      \
+ --map-by ppr:1:node \
+ ${DC}

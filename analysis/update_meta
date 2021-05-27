@@ -1,0 +1,9 @@
+#!/bin/bash
+#set -x
+# arguments should be
+# $1 = tag
+META="$1_metas.list"
+
+PACKAGE_DIR=/home/vlite-master/surya
+
+find /home/vlite-master/surya/meta -type f -name "*.meta" | sort > /home/vlite-master/surya/vlite-fast/analysis/${META}

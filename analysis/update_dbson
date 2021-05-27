@@ -1,0 +1,12 @@
+#!/bin/bash
+#set -x
+# arguments should be
+# $1 = tag
+# $2 = look-back days
+
+DBSON="$1_dbsons.list"
+LBDAY=$2
+
+
+#find /mnt/ssd/triggers  -type f -name "*.dbson" -ctime -${LBDAY} | sort > /home/vlite-master/surya/vlite-fast/analysis/${DBSON}
+find /mnt/ssd/triggers  -type f -name "*.dbson" | sort > /home/vlite-master/surya/vlite-fast/analysis/${DBSON}

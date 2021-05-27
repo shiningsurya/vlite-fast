@@ -1,0 +1,17 @@
+assign a new signature = SIG
+
+updates:
+- update_pkl: updates the vdifs dataframe pickles
+- update_meta: updates the metas list
+- update_dbson: updates the dbson list
+
+python match_meta_dbson.py -v SIG
+python match_meta_vdifs.py -v SIG
+
+python generate_list_vdifs.py -v SIG --null
+
+when possible; delete _un.list since they are unmatched
+
+python find_copy.py -v matched-meta.list
+
+python meta_selection.py code
